@@ -1,0 +1,712 @@
+import os
+import sys
+import csv
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                             QTableWidget, QTableWidgetItem, QLineEdit, QLabel,
+                             QPushButton, QMenuBar, QMenu, QHeaderView, QMessageBox,
+                             QAbstractItemView, QCheckBox, QFileDialog)
+from PyQt6.QtGui import QPixmap, QDesktopServices
+from PyQt6.QtCore import Qt, QUrl
+
+from database import Database
+from ebook_parser import EbookParser
+from import_window import ImportWindow
+from detail_window import DetailWindow
+from settings_window import SettingsWindow
+from douban_parser import DoubanParser
+from utils import safe_str, sanitize_filename
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.db = Database()
+        self.parser = EbookParser()
+        self.douban_parser = DoubanParser(parent=self)
+        self.sort_column = 2
+        self.sort_order = "ASC"
+        self.current_search = ""
+        self.books_data = []
+        self.init_ui()
+        self.refresh_books()
+        self.setup_douban_callbacks()
+
+    def init_ui(self):
+        self.setWindowTitle("电子书管理器 v2.0")
+        self.setMinimumSize(1600, 850)
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+
+        self.create_menu_bar()
+
+        top_layout = QHBoxLayout()
+        top_layout.addWidget(QLabel("搜索:"))
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("标题、作者、分类、ISBN、标签...")
+        self.search_input.textChanged.connect(self.on_search)
+        top_layout.addWidget(self.search_input, 1)
+
+        self.select_all_btn = QPushButton("☑️ 全选")
+        self.select_all_btn.setMinimumHeight(35)
+        self.select_all_btn.clicked.connect(self.toggle_select_all)
+        top_layout.addWidget(self.select_all_btn)
+
+        self.invert_select_btn = QPushButton("🔄 反选")
+        self.invert_select_btn.setMinimumHeight(35)
+        self.invert_select_btn.clicked.connect(self.invert_selection)
+        top_layout.addWidget(self.invert_select_btn)
+
+        self.batch_rename_btn = QPushButton("📝 批量重命名")
+        self.batch_rename_btn.setMinimumHeight(35)
+        self.batch_rename_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9C27B0;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #7B1FA2;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.batch_rename_btn.clicked.connect(self.batch_rename)
+        self.batch_rename_btn.setEnabled(False)
+        top_layout.addWidget(self.batch_rename_btn)
+
+        self.export_csv_btn = QPushButton("📤 导出CSV")
+        self.export_csv_btn.setMinimumHeight(35)
+        self.export_csv_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #00BCD4;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0097A7;
+            }
+        """)
+        self.export_csv_btn.clicked.connect(self.export_csv)
+        top_layout.addWidget(self.export_csv_btn)
+
+        self.batch_parse_btn = QPushButton("🔍 批量解析豆瓣")
+        self.batch_parse_btn.setMinimumHeight(35)
+        self.batch_parse_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.batch_parse_btn.clicked.connect(self.batch_parse_douban)
+        top_layout.addWidget(self.batch_parse_btn)
+
+        self.batch_delete_btn = QPushButton("🗑️ 批量删除选中")
+        self.batch_delete_btn.setMinimumHeight(35)
+        self.batch_delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.batch_delete_btn.clicked.connect(self.batch_delete)
+        self.batch_delete_btn.setEnabled(False)
+        top_layout.addWidget(self.batch_delete_btn)
+
+        main_layout.addLayout(top_layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(15)
+        self.table.setHorizontalHeaderLabels([
+            "", "封面", "标题", "副标题", "作者", "出版社", "出版日期",
+            "分类", "文件大小", "物理位置", "扩展名", "ISBN", "评分", "标签", "操作"
+        ])
+
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(0, 45)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(1, 80)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(14, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(14, 150)
+
+        self.table.verticalHeader().setDefaultSectionSize(100)
+
+        self.table.horizontalHeader().sectionClicked.connect(self.on_header_clicked)
+        self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
+
+        main_layout.addWidget(self.table)
+
+        self.status_label = QLabel("就绪")
+        main_layout.addWidget(self.status_label)
+
+    def setup_douban_callbacks(self):
+        self.douban_parser.status_signal.connect(self.on_parse_status)
+        self.douban_parser.progress_signal.connect(self.on_parse_progress)
+        self.douban_parser.parse_complete_signal.connect(self.on_parse_complete)
+
+    def on_parse_status(self, message):
+        self.status_label.setText(message)
+
+    def on_parse_progress(self):
+        queue_size = self.douban_parser.queue_size()
+        if queue_size > 0:
+            self.status_label.setText(f"解析队列剩余: {queue_size} 本书")
+        else:
+            self.refresh_books()
+
+    def create_menu_bar(self):
+        menubar = self.menuBar()
+
+        file_menu = menubar.addMenu("文件")
+
+        import_action = file_menu.addAction("导入电子书")
+        import_action.triggered.connect(self.open_import_window)
+
+        export_action = file_menu.addAction("导出CSV")
+        export_action.triggered.connect(self.export_csv)
+
+        file_menu.addSeparator()
+
+        exit_action = file_menu.addAction("退出")
+        exit_action.triggered.connect(self.close)
+
+        settings_menu = menubar.addMenu("设置")
+
+        douban_settings_action = settings_menu.addAction("豆瓣配置")
+        douban_settings_action.triggered.connect(self.open_settings_window)
+
+        help_menu = menubar.addMenu("帮助")
+        about_action = help_menu.addAction("关于")
+        about_action.triggered.connect(self.show_about)
+
+    def open_settings_window(self):
+        current_cookie = self.douban_parser.cookie
+        dialog = SettingsWindow(self, current_cookie)
+        if dialog.exec():
+            new_cookie = dialog.get_cookie()
+            self.douban_parser.save_config(new_cookie)
+            QMessageBox.information(self, "成功", "配置已保存！")
+
+    def refresh_books(self):
+        self.books_data = self.db.get_all_books(
+            sort_by=self.get_sort_column_name(self.sort_column),
+            order=self.sort_order,
+            search=self.current_search
+        )
+
+        self.table.setRowCount(len(self.books_data))
+
+        for row, book in enumerate(self.books_data):
+            self.set_book_row(row, book)
+
+        self.update_status()
+        self.update_delete_button_state()
+
+    def update_status(self):
+        total = len(self.books_data)
+        parsed = sum(1 for b in self.books_data if b.get('parse_status') == 'success')
+        queue_size = self.douban_parser.queue_size()
+
+        if queue_size > 0:
+            self.status_label.setText(f"共 {total} 本书，已解析 {parsed} 本，队列中 {queue_size} 本")
+        else:
+            self.status_label.setText(f"共 {total} 本书，已解析 {parsed} 本")
+
+    def set_book_row(self, row, book):
+        checkbox_widget = QWidget()
+        checkbox_layout = QHBoxLayout(checkbox_widget)
+        checkbox_layout.setContentsMargins(15, 0, 0, 0)
+        checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        checkbox = QCheckBox()
+        checkbox.setChecked(False)
+        checkbox.stateChanged.connect(lambda state, r=row: self.on_checkbox_changed(r, state))
+        checkbox_layout.addWidget(checkbox)
+
+        self.table.setCellWidget(row, 0, checkbox_widget)
+
+        cover_label = QLabel()
+        cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cover_path = book.get('cover_path')
+        if cover_path and os.path.exists(cover_path):
+            pixmap = QPixmap(cover_path)
+            cover_label.setPixmap(pixmap.scaled(
+                60, 80,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            ))
+        else:
+            parse_status = book.get('parse_status', '')
+            status_text = ''
+            if parse_status == 'parsing':
+                status_text = '⏳'
+            elif parse_status == 'success':
+                status_text = '✓'
+            elif parse_status == 'failed':
+                status_text = '✗'
+            cover_label.setText(status_text)
+        self.table.setCellWidget(row, 1, cover_label)
+
+        self.table.setItem(row, 2, QTableWidgetItem(safe_str(book.get('title'))))
+        self.table.setItem(row, 3, QTableWidgetItem(safe_str(book.get('subtitle'))))
+        self.table.setItem(row, 4, QTableWidgetItem(safe_str(book.get('authors'))))
+        self.table.setItem(row, 5, QTableWidgetItem(safe_str(book.get('publisher'))))
+        self.table.setItem(row, 6, QTableWidgetItem(safe_str(book.get('pubdate'))))
+        self.table.setItem(row, 7, QTableWidgetItem(safe_str(book.get('category'))))
+
+        file_size = book.get('file_size', 0)
+        size_str = self.parser.format_file_size(file_size) if file_size else ''
+        self.table.setItem(row, 8, QTableWidgetItem(size_str))
+
+        self.table.setItem(row, 9, QTableWidgetItem(safe_str(book.get('physical_path'))))
+        self.table.setItem(row, 10, QTableWidgetItem(safe_str(book.get('extension'))))
+        self.table.setItem(row, 11, QTableWidgetItem(safe_str(book.get('isbn'))))
+
+        rating = book.get('rating', 0) or 0
+        self.table.setItem(row, 12, QTableWidgetItem(f"{rating:.1f}" if rating > 0 else ''))
+
+        self.table.setItem(row, 13, QTableWidgetItem(safe_str(book.get('tags'))))
+
+        btn_widget = QWidget()
+        btn_layout = QHBoxLayout(btn_widget)
+        btn_layout.setContentsMargins(5, 0, 5, 0)
+        btn_layout.setSpacing(8)
+
+        open_btn = QPushButton("📖 打开")
+        open_btn.setMinimumWidth(70)
+        open_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """)
+        open_btn.clicked.connect(lambda checked, b=book: self.open_book(b))
+        btn_layout.addWidget(open_btn)
+
+        detail_btn = QPushButton("✏️")
+        detail_btn.setToolTip("查看/编辑详情")
+        detail_btn.setMinimumWidth(40)
+        detail_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 6px 10px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        detail_btn.clicked.connect(lambda checked, b=book: self.open_detail_window(b))
+        btn_layout.addWidget(detail_btn)
+
+        self.table.setCellWidget(row, 14, btn_widget)
+
+        if self.table.item(row, 8):
+            self.table.item(row, 8).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if self.table.item(row, 12):
+            self.table.item(row, 12).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.table.item(row, 2).setData(Qt.ItemDataRole.UserRole, book)
+
+    def get_sort_column_name(self, col):
+        column_map = {
+            2: 'title',
+            3: 'subtitle',
+            4: 'authors',
+            5: 'publisher',
+            6: 'pubdate',
+            7: 'category',
+            8: 'file_size',
+            9: 'physical_path',
+            10: 'extension',
+            11: 'isbn',
+            12: 'rating'
+        }
+        return column_map.get(col, 'title')
+
+    def on_header_clicked(self, col):
+        if col in [0, 1, 14]:
+            return
+
+        if self.sort_column == col:
+            self.sort_order = "DESC" if self.sort_order == "ASC" else "ASC"
+        else:
+            self.sort_column = col
+            self.sort_order = "ASC"
+
+        self.refresh_books()
+
+    def on_search(self):
+        self.current_search = self.search_input.text()
+        self.refresh_books()
+
+    def on_cell_double_clicked(self, row, col):
+        if col == 0:
+            return
+        
+        if row < 0 or row >= len(self.books_data):
+            return
+        
+        book = self.books_data[row]
+        if book and book.get('id'):
+            self.open_detail_window(book)
+
+    def on_checkbox_changed(self, row, state):
+        self.update_delete_button_state()
+
+    def get_checked_rows(self):
+        checked_rows = []
+        for row in range(self.table.rowCount()):
+            widget = self.table.cellWidget(row, 0)
+            if widget:
+                checkbox = widget.findChild(QCheckBox)
+                if checkbox and checkbox.isChecked():
+                    checked_rows.append(row)
+        return checked_rows
+
+    def update_delete_button_state(self):
+        checked_count = len(self.get_checked_rows())
+        self.batch_delete_btn.setEnabled(checked_count > 0)
+        self.batch_rename_btn.setEnabled(checked_count > 0)
+        self.update_status()
+
+    def toggle_select_all(self):
+        checked_rows = self.get_checked_rows()
+        all_checked = len(checked_rows) == self.table.rowCount()
+
+        for row in range(self.table.rowCount()):
+            widget = self.table.cellWidget(row, 0)
+            if widget:
+                checkbox = widget.findChild(QCheckBox)
+                if checkbox:
+                    checkbox.setChecked(not all_checked)
+
+        self.update_delete_button_state()
+
+    def invert_selection(self):
+        for row in range(self.table.rowCount()):
+            widget = self.table.cellWidget(row, 0)
+            if widget:
+                checkbox = widget.findChild(QCheckBox)
+                if checkbox:
+                    checkbox.setChecked(not checkbox.isChecked())
+
+        self.update_delete_button_state()
+
+    def batch_parse_douban(self):
+        if not self.douban_parser.has_cookie():
+            QMessageBox.warning(self, "提示", "请先在设置中配置豆瓣 Cookie！")
+            self.open_settings_window()
+            return
+
+        checked_rows = self.get_checked_rows()
+        if not checked_rows:
+            QMessageBox.warning(self, "提示", "请先选择要解析的书籍！")
+            return
+
+        count = len(checked_rows)
+        reply = QMessageBox.question(
+            self, "确认批量解析",
+            f"确定要解析选中的 {count} 本书吗？\n（每次解析间隔约 5 秒，请耐心等待）",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            for row in checked_rows:
+                if 0 <= row < len(self.books_data):
+                    book = self.books_data[row]
+                    if book and book.get('id'):
+                        self.db.update_book(book['id'], {'parse_status': 'parsing'})
+                        self.douban_parser.add_to_queue(
+                            book['id'],
+                            book
+                        )
+
+            self.refresh_books()
+
+    def on_parse_complete(self, result, error):
+        if result and 'book_id' in result:
+            book_id = result['book_id']
+            update_data = {
+                'parse_status': 'success',
+                'last_parsed_at': 'CURRENT_TIMESTAMP'
+            }
+
+            if 'title' in result:
+                update_data['title'] = result['title']
+            if 'subtitle' in result:
+                update_data['subtitle'] = result['subtitle']
+            if 'authors' in result:
+                update_data['authors'] = result['authors']
+            if 'isbn' in result:
+                update_data['isbn'] = result['isbn']
+            if 'rating' in result:
+                update_data['rating'] = result['rating']
+            if 'douban_url' in result:
+                update_data['douban_url'] = result['douban_url']
+            if 'douban_id' in result:
+                update_data['douban_id'] = result['douban_id']
+            if 'publisher' in result:
+                update_data['publisher'] = result['publisher']
+            if 'pubdate' in result:
+                update_data['pubdate'] = result['pubdate']
+            if 'summary' in result:
+                update_data['summary'] = result['summary']
+            if 'cover_url' in result:
+                update_data['cover_url'] = result['cover_url']
+            if 'cover_path' in result:
+                update_data['cover_path'] = result['cover_path']
+            if 'tags' in result:
+                update_data['tags'] = result['tags']
+            if 'series' in result:
+                update_data['series'] = result['series']
+
+            self.db.update_book(book_id, update_data)
+            print(f"书籍解析完成: {result.get('title', '未知')}")
+        elif error:
+            print(f"解析失败: {error}")
+            if result and 'book_id' in result:
+                self.db.update_book(result['book_id'], {'parse_status': 'failed'})
+
+    def batch_delete(self):
+        checked_rows = self.get_checked_rows()
+        if not checked_rows:
+            return
+
+        count = len(checked_rows)
+        reply = QMessageBox.question(
+            self, "确认批量删除",
+            f"确定要删除选中的 {count} 本书吗？\n（只会删除记录，不会删除文件）",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            deleted_count = 0
+            for row in sorted(checked_rows, reverse=True):
+                if 0 <= row < len(self.books_data):
+                    book = self.books_data[row]
+                    if book and book.get('id') and self.db.delete_book(book['id']):
+                        deleted_count += 1
+
+            QMessageBox.information(self, "成功", f"已成功删除 {deleted_count} 本书！")
+            self.refresh_books()
+
+    def batch_rename(self):
+        checked_rows = self.get_checked_rows()
+        if not checked_rows:
+            return
+
+        count = len(checked_rows)
+        reply = QMessageBox.question(
+            self, "确认批量重命名",
+            f"确定要重命名选中的 {count} 本书吗？\n\n命名格式: \"{{标题}} - {{作者}}.{{扩展名}}\"\n\n（文件不存在将自动跳过）",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            success_count = 0
+            skip_count = 0
+            error_count = 0
+
+            for row in sorted(checked_rows, reverse=True):
+                if 0 <= row < len(self.books_data):
+                    book = self.books_data[row]
+                    if not book or not book.get('id'):
+                        continue
+
+                    old_path = book.get('physical_path')
+                    if not old_path or not os.path.exists(old_path):
+                        skip_count += 1
+                        continue
+
+                    title = safe_str(book.get('title')).strip()
+                    authors = safe_str(book.get('authors')).strip()
+                    ext = safe_str(book.get('extension')).strip()
+
+                    if not ext:
+                        ext = os.path.splitext(old_path)[1].lstrip('.')
+
+                    if not title:
+                        skip_count += 1
+                        continue
+
+                    new_filename = f"{title}"
+                    if authors:
+                        new_filename += f" - {authors}"
+                    if ext:
+                        new_filename += f".{ext}"
+
+                    new_filename = sanitize_filename(new_filename)
+                    old_dir = os.path.dirname(old_path)
+                    new_path = os.path.join(old_dir, new_filename)
+
+                    if old_path == new_path:
+                        continue
+
+                    try:
+                        if os.path.exists(new_path):
+                            skip_count += 1
+                            continue
+
+                        os.rename(old_path, new_path)
+                        self.db.update_book(book['id'], {'physical_path': new_path})
+                        success_count += 1
+                    except Exception as e:
+                        print(f"重命名失败: {e}")
+                        error_count += 1
+
+            result_msg = f"重命名完成！\n\n成功: {success_count} 本\n跳过: {skip_count} 本\n失败: {error_count} 本"
+            QMessageBox.information(self, "完成", result_msg)
+            self.refresh_books()
+
+    def export_csv(self):
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出CSV",
+            "",
+            "CSV文件 (*.csv)"
+        )
+
+        if not filepath:
+            return
+
+        try:
+            with open(filepath, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                fieldnames = [
+                    'file_name', 'file_type', 'dir_root', 'dir_sub', 'full_dir',
+                    'douban_rank', 'summary', 'douban_title', 'douban_author',
+                    'douban_isbn', 'douban_url', 'douban_tags'
+                ]
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter='\t')
+                writer.writeheader()
+
+                for book in self.books_data:
+                    physical_path = safe_str(book.get('physical_path'))
+                    file_name = os.path.basename(physical_path) if physical_path else ''
+                    file_type = safe_str(book.get('extension'))
+                    
+                    dir_root = ''
+                    dir_sub = ''
+                    full_dir = ''
+                    if physical_path:
+                        full_dir = os.path.dirname(physical_path)
+                        drive, path = os.path.splitdrive(full_dir)
+                        if drive:
+                            dir_root = drive
+                            dir_sub = path.lstrip(os.sep)
+                        elif full_dir:
+                            parts = full_dir.split(os.sep, 1)
+                            dir_root = parts[0]
+                            dir_sub = parts[1] if len(parts) > 1 else ''
+
+                    douban_rank = safe_str(book.get('rating'))
+                    summary = safe_str(book.get('summary'))
+                    douban_title = safe_str(book.get('title'))
+                    douban_author = safe_str(book.get('authors'))
+                    douban_isbn = safe_str(book.get('isbn'))
+                    douban_url = safe_str(book.get('douban_url'))
+                    douban_tags = safe_str(book.get('tags'))
+
+                    writer.writerow({
+                        'file_name': file_name,
+                        'file_type': file_type,
+                        'dir_root': dir_root,
+                        'dir_sub': dir_sub,
+                        'full_dir': full_dir,
+                        'douban_rank': douban_rank,
+                        'summary': summary,
+                        'douban_title': douban_title,
+                        'douban_author': douban_author,
+                        'douban_isbn': douban_isbn,
+                        'douban_url': douban_url,
+                        'douban_tags': douban_tags
+                    })
+
+            QMessageBox.information(self, "成功", f"CSV文件已导出到：\n{filepath}")
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"导出失败：{str(e)}")
+
+    def open_book(self, book):
+        filepath = book.get('physical_path')
+        if filepath and os.path.exists(filepath):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(filepath))
+        else:
+            QMessageBox.warning(self, "错误", "文件不存在！")
+
+    def open_import_window(self):
+        dialog = ImportWindow(self.db, self.parser, self)
+        if dialog.exec():
+            self.refresh_books()
+
+    def open_detail_window(self, book):
+        dialog = DetailWindow(self.db, book, self.douban_parser, self)
+        dialog.exec()
+
+    def show_about(self):
+        QMessageBox.about(
+            self, "关于电子书管理器",
+            "电子书管理器 v2.0\n\n"
+            "支持 EPUB、PDF 格式\n"
+            "集成豆瓣书籍信息解析\n"
+            "使用 lxml + XPath 稳定解析\n"
+            "跨平台支持 Windows、Linux、Mac"
+        )
+
+
+def main():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
