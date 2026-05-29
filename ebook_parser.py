@@ -61,15 +61,16 @@ class EbookParser:
 
             description = self._get_metadata(book, 'description')
             if description:
-                data['subtitle'] = description[:200]
+                data['summary'] = description[:2000]
 
             isbn = self._get_metadata(book, 'identifier')
             if isbn and len(isbn) in [10, 13] and isbn.isdigit():
                 data['isbn'] = isbn
 
-            subject = self._get_metadata(book, 'subject')
-            if subject:
-                data['category'] = subject
+            subjects = self._get_all_metadata(book, 'subject')
+            if subjects:
+                data['category'] = subjects[0]
+                data['tags'] = subjects
 
             publisher = self._get_metadata(book, 'publisher')
             if publisher:
@@ -122,11 +123,22 @@ class EbookParser:
 
                 subject = get_meta('subject')
                 if subject:
-                    data['subtitle'] = subject[:200] if len(subject) > 200 else subject
+                    data['summary'] = subject[:2000] if len(subject) > 2000 else subject
 
                 publisher = get_meta('publisher')
                 if publisher:
                     data['publisher'] = publisher
+
+                keywords = get_meta('keywords')
+                if keywords:
+                    kw_list = [k.strip() for k in keywords.split(',') if k.strip()]
+                    if kw_list:
+                        data['tags'] = kw_list
+                    for kw in kw_list:
+                        kw_clean = kw.replace('-', '').replace(' ', '')
+                        if kw_clean.isdigit() and len(kw_clean) in [10, 13]:
+                            data['isbn'] = kw_clean
+                            break
 
                 data['page_count'] = len(reader.pages)
 
@@ -183,6 +195,22 @@ class EbookParser:
             print(f"提取 PDF 封面失败: {e}")
 
         return None
+
+    def _get_all_metadata(self, book, name: str) -> list:
+        try:
+            meta = book.get_metadata('DC', name)
+            if meta:
+                values = []
+                for item in meta:
+                    value = item[0]
+                    if value and isinstance(value, str):
+                        value = value.strip()
+                        if value and value.lower() not in ['none', 'null', 'nan']:
+                            values.append(value)
+                return values
+        except:
+            pass
+        return []
 
     def _get_metadata(self, book, name: str) -> Optional[str]:
         try:
@@ -589,6 +617,11 @@ class EbookParser:
                 else:
                     book.add_metadata('DC', 'subject', str(subject))
 
+            rating = metadata.get('rating')
+            if rating:
+                clear_field('rating')
+                book.add_metadata('DC', 'rating', str(rating))
+
             return self._write_epub_safe(epub_path, book)
         except Exception as e:
             print(f"更新 EPUB 元数据失败: {e}")
@@ -639,6 +672,10 @@ class EbookParser:
                     new_metadata['/Keywords'] = ', '.join(map(str, tags))
                 else:
                     new_metadata['/Keywords'] = str(tags)
+
+            rating = metadata.get('rating')
+            if rating:
+                new_metadata['/Rating'] = str(rating)
 
             writer.add_metadata(new_metadata)
 

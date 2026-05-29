@@ -1,7 +1,8 @@
 import os
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QTextEdit, QPushButton, QFormLayout, QMessageBox,
-                             QDoubleSpinBox, QScrollArea, QWidget, QFrame, QApplication)
+                             QDoubleSpinBox, QScrollArea, QWidget, QFrame, QApplication,
+                             QFileDialog)
 from PyQt6.QtGui import QPixmap, QDesktopServices
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 
@@ -57,6 +58,26 @@ class DetailWindow(QDialog):
             self.cover_label.setText("无封面")
 
         cover_layout.addWidget(self.cover_label)
+
+        self.change_cover_btn = QPushButton("更换封面")
+        self.change_cover_btn.setMaximumWidth(250)
+        self.change_cover_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #607D8B;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #455A64;
+            }
+        """)
+        self.change_cover_btn.clicked.connect(self.change_cover)
+        cover_layout.addWidget(self.change_cover_btn)
+
         cover_layout.addStretch()
         content_layout.addLayout(cover_layout)
 
@@ -426,6 +447,7 @@ class DetailWindow(QDialog):
             'series': self.series_edit.text(),
             'rating': self.rating_spin.value(),
             'douban_url': self.douban_edit.text(),
+            'douban_id': self.douban_id_edit.text(),
             'summary': self.summary_edit.toPlainText(),
             'notes': self.notes_edit.toPlainText()
         }
@@ -435,6 +457,11 @@ class DetailWindow(QDialog):
             update_data['page_count'] = page_count
         except:
             pass
+
+        if self.book_data.get('cover_path'):
+            update_data['cover_path'] = self.book_data['cover_path']
+        if self.book_data.get('cover_url'):
+            update_data['cover_url'] = self.book_data['cover_url']
 
         if self.db.update_book(self.book_data['id'], update_data):
             self.book_data.update(update_data)
@@ -458,76 +485,76 @@ class DetailWindow(QDialog):
             QMessageBox.warning(self, "提示", "请先填写书名！")
             return
 
-        reply = QMessageBox.question(
-            self, "确认解析",
-            f"确定要从豆瓣解析以下书籍信息吗？\n\n书名: {title}\n作者: {author}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
+        self.set_edit_mode(True)
+        self.parse_btn.setEnabled(False)
+        self.parse_btn.setText("⏳ 解析中...")
+        QApplication.processEvents()
 
-        if reply == QMessageBox.StandardButton.Yes:
-            self.set_edit_mode(True)
-            self.parse_btn.setEnabled(False)
-            self.parse_btn.setText("⏳ 解析中...")
-            QApplication.processEvents()
+        result = self.douban_parser.search_book(title, author)
 
-            result = self.douban_parser.search_book(title, author)
+        if result and 'error' not in result:
+            if result.get('title'):
+                self.title_edit.setText(result['title'])
+            if result.get('subtitle'):
+                self.subtitle_edit.setText(result['subtitle'])
+            if result.get('authors'):
+                authors_str = ', '.join(result['authors']) if isinstance(result['authors'], list) else str(result['authors'])
+                self.author_edit.setText(authors_str)
+            if result.get('publisher'):
+                self.publisher_edit.setText(result['publisher'])
+            if result.get('pubdate'):
+                self.pubdate_edit.setText(result['pubdate'])
+            if result.get('isbn'):
+                self.isbn_edit.setText(result['isbn'])
+            if result.get('rating'):
+                self.rating_spin.setValue(float(result['rating']))
+            if result.get('douban_url'):
+                self.douban_edit.setText(result['douban_url'])
+            if result.get('douban_id'):
+                self.douban_id_edit.setText(result['douban_id'])
+            if result.get('summary'):
+                self.summary_edit.setPlainText(result['summary'])
+            if result.get('tags'):
+                tags_str = ', '.join(result['tags']) if isinstance(result['tags'], list) else str(result['tags'])
+                self.tags_edit.setText(tags_str)
+            if result.get('series'):
+                self.series_edit.setText(result['series'])
 
-            if result and 'error' not in result:
-                if result.get('title'):
-                    self.title_edit.setText(result['title'])
-                if result.get('subtitle'):
-                    self.subtitle_edit.setText(result['subtitle'])
-                if result.get('authors'):
-                    authors_str = ', '.join(result['authors']) if isinstance(result['authors'], list) else str(result['authors'])
-                    self.author_edit.setText(authors_str)
-                if result.get('publisher'):
-                    self.publisher_edit.setText(result['publisher'])
-                if result.get('pubdate'):
-                    self.pubdate_edit.setText(result['pubdate'])
-                if result.get('isbn'):
-                    self.isbn_edit.setText(result['isbn'])
-                if result.get('rating'):
-                    self.rating_spin.setValue(float(result['rating']))
-                if result.get('douban_url'):
-                    self.douban_edit.setText(result['douban_url'])
-                if result.get('douban_id'):
-                    self.douban_id_edit.setText(result['douban_id'])
-                if result.get('summary'):
-                    self.summary_edit.setPlainText(result['summary'])
-                if result.get('tags'):
-                    tags_str = ', '.join(result['tags']) if isinstance(result['tags'], list) else str(result['tags'])
-                    self.tags_edit.setText(tags_str)
-                if result.get('series'):
-                    self.series_edit.setText(result['series'])
+            if result.get('cover_url'):
+                self.book_data['cover_url'] = result['cover_url']
+                file_hash = abs(hash(self.book_data.get('physical_path', '') + str(self.book_data.get('id', 0))))
+                cover_filename = f"cover_{file_hash}.jpg"
+                covers_dir = os.path.join(os.path.dirname(__file__), 'covers')
+                cover_path = os.path.join(covers_dir, cover_filename)
 
-                if result.get('cover_url'):
-                    file_hash = abs(hash(self.book_data.get('physical_path', '') + str(self.book_data.get('id', 0))))
-                    cover_filename = f"cover_{file_hash}.jpg"
-                    covers_dir = os.path.join(os.path.dirname(__file__), 'covers')
-                    cover_path = os.path.join(covers_dir, cover_filename)
+                if self.douban_parser.download_cover(result['cover_url'], cover_path):
+                    self.book_data['cover_path'] = cover_path
+                    if os.path.exists(cover_path):
+                        pixmap = QPixmap(cover_path)
+                        self.cover_label.setPixmap(pixmap.scaled(
+                            230, 330,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation
+                        ))
 
-                    if self.douban_parser.download_cover(result['cover_url'], cover_path):
-                        self.book_data['cover_path'] = cover_path
-                        if os.path.exists(cover_path):
-                            pixmap = QPixmap(cover_path)
-                            self.cover_label.setPixmap(pixmap.scaled(
-                                230, 330,
-                                Qt.AspectRatioMode.KeepAspectRatio,
-                                Qt.TransformationMode.SmoothTransformation
-                            ))
+            self.db.update_book(self.book_data['id'], {
+                'parse_status': 'success',
+                'last_parsed_at': 'CURRENT_TIMESTAMP'
+            })
 
-                self.db.update_book(self.book_data['id'], {
-                    'parse_status': 'success',
-                    'last_parsed_at': 'CURRENT_TIMESTAMP'
-                })
+            reply = QMessageBox.question(
+                self, "解析完成",
+                "豆瓣信息解析完成！是否立即保存？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.save_changes()
+        else:
+            error_msg = result.get('error', '解析失败，请检查网络或Cookie') if result else '解析失败'
+            QMessageBox.warning(self, "错误", f"解析失败: {error_msg}")
 
-                QMessageBox.information(self, "成功", "豆瓣信息解析完成！\n请检查并保存修改。")
-            else:
-                error_msg = result.get('error', '解析失败，请检查网络或Cookie') if result else '解析失败'
-                QMessageBox.warning(self, "错误", f"解析失败: {error_msg}")
-
-            self.parse_btn.setEnabled(True)
-            self.parse_btn.setText("🔍 从豆瓣解析")
+        self.parse_btn.setEnabled(True)
+        self.parse_btn.setText("🔍 从豆瓣解析")
 
     def open_book(self):
         filepath = self.book_data.get('physical_path')
@@ -535,6 +562,52 @@ class DetailWindow(QDialog):
             QDesktopServices.openUrl(QUrl.fromLocalFile(filepath))
         else:
             QMessageBox.warning(self, "错误", "文件不存在！")
+
+    def change_cover(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择封面图片", "",
+            "图片文件 (*.jpg *.jpeg *.png *.gif *.webp *.bmp)"
+        )
+        if not file_path:
+            return
+
+        try:
+            from PIL import Image
+
+            img = Image.open(file_path)
+            if img.mode in ('RGBA', 'P', 'LA'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'RGBA':
+                    background.paste(img, mask=img.split()[3])
+                else:
+                    background.paste(img, mask=img.split()[1])
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+
+            img.thumbnail((400, 600))
+
+            file_hash = abs(hash(self.book_data.get('physical_path', '') + str(self.book_data.get('id', 0))))
+            cover_filename = f"cover_{file_hash}.jpg"
+            covers_dir = os.path.join(os.path.dirname(__file__), 'covers')
+            cover_path = os.path.join(covers_dir, cover_filename)
+
+            os.makedirs(covers_dir, exist_ok=True)
+            img.save(cover_path, 'JPEG', quality=85)
+
+            self.book_data['cover_path'] = cover_path
+            pixmap = QPixmap(cover_path)
+            self.cover_label.setPixmap(pixmap.scaled(
+                230, 330,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            ))
+
+            if not self.is_edit_mode:
+                self.db.update_book(self.book_data['id'], {'cover_path': cover_path})
+                self.book_changed.emit()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"更换封面失败: {str(e)}")
 
     def delete_book(self):
         reply = QMessageBox.question(
@@ -674,6 +747,10 @@ class DetailWindow(QDialog):
                 metadata['tags'] = [t.strip() for t in tags.split(',') if t.strip()]
             else:
                 metadata['tags'] = tags
+
+        rating = self.rating_spin.value()
+        if rating > 0:
+            metadata['rating'] = rating
 
         if metadata:
             meta_list = '\n'.join([f"{k}: {v}" for k, v in metadata.items()])
