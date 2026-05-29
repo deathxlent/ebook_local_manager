@@ -539,39 +539,55 @@ class EbookParser:
         try:
             book = epub.read_epub(epub_path, options={'ignore_ncx': True})
 
+            def clear_field(name):
+                try:
+                    if 'DC' in book.metadata and name in book.metadata['DC']:
+                        del book.metadata['DC'][name]
+                except:
+                    pass
+
             title = metadata.get('title')
             if title:
-                book.metadata['DC']['title'] = [(str(title), {})]
+                clear_field('title')
+                book.add_metadata('DC', 'title', str(title))
 
             authors = metadata.get('authors')
             if authors:
+                clear_field('creator')
                 if isinstance(authors, list):
-                    book.metadata['DC']['creator'] = [(str(a), {}) for a in authors]
+                    for author in authors:
+                        book.add_metadata('DC', 'creator', str(author))
                 else:
-                    book.metadata['DC']['creator'] = [(str(authors), {})]
+                    book.add_metadata('DC', 'creator', str(authors))
 
             isbn = metadata.get('isbn')
             if isbn:
-                book.metadata['DC']['identifier'] = [(str(isbn), {'id': 'isbn'})]
+                clear_field('identifier')
+                book.add_metadata('DC', 'identifier', str(isbn), {'id': 'isbn'})
 
             publisher = metadata.get('publisher')
             if publisher:
-                book.metadata['DC']['publisher'] = [(str(publisher), {})]
+                clear_field('publisher')
+                book.add_metadata('DC', 'publisher', str(publisher))
 
             pubdate = metadata.get('pubdate')
             if pubdate:
-                book.metadata['DC']['date'] = [(str(pubdate), {})]
+                clear_field('date')
+                book.add_metadata('DC', 'date', str(pubdate))
 
             description = metadata.get('summary') or metadata.get('description')
             if description:
-                book.metadata['DC']['description'] = [(str(description), {})]
+                clear_field('description')
+                book.add_metadata('DC', 'description', str(description))
 
             subject = metadata.get('tags') or metadata.get('category')
             if subject:
+                clear_field('subject')
                 if isinstance(subject, list):
-                    book.metadata['DC']['subject'] = [(str(s), {}) for s in subject]
+                    for s in subject:
+                        book.add_metadata('DC', 'subject', str(s))
                 else:
-                    book.metadata['DC']['subject'] = [(str(subject), {})]
+                    book.add_metadata('DC', 'subject', str(subject))
 
             return self._write_epub_safe(epub_path, book)
         except Exception as e:
