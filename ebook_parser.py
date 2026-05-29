@@ -344,19 +344,34 @@ class EbookParser:
     def _write_epub_safe(self, epub_path: str, book) -> bool:
         try:
             tmp_dir = os.path.dirname(epub_path)
-            with tempfile.NamedTemporaryFile(
-                dir=tmp_dir, suffix='.epub', delete=False
-            ) as tmp:
-                tmp_path = tmp.name
+            base_name = os.path.basename(epub_path)
+            tmp_path = os.path.join(tmp_dir, f".tmp_{base_name}")
 
             epub.write_epub(tmp_path, book)
-            shutil.move(tmp_path, epub_path)
+
+            if os.path.exists(epub_path):
+                backup_path = epub_path + '.bak'
+                if os.path.exists(backup_path):
+                    os.remove(backup_path)
+                os.rename(epub_path, backup_path)
+
+            os.rename(tmp_path, epub_path)
+
+            backup_path = epub_path + '.bak'
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+
             print(f"EPUB 写入成功: {epub_path}")
             return True
         except Exception as e:
             if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+                try:
+                    os.remove(tmp_path)
+                except:
+                    pass
             print(f"EPUB 写入失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def format_file_size(self, size_bytes: int) -> str:
@@ -472,15 +487,24 @@ class EbookParser:
                 writer.add_metadata(reader.metadata)
 
             tmp_dir = os.path.dirname(pdf_path)
-            with tempfile.NamedTemporaryFile(
-                dir=tmp_dir, suffix='.pdf', delete=False
-            ) as tmp:
-                tmp_path = tmp.name
+            base_name = os.path.basename(pdf_path)
+            tmp_path = os.path.join(tmp_dir, f".tmp_{base_name}")
 
             with open(tmp_path, 'wb') as f:
                 writer.write(f)
 
-            shutil.move(tmp_path, pdf_path)
+            if os.path.exists(pdf_path):
+                backup_path = pdf_path + '.bak'
+                if os.path.exists(backup_path):
+                    os.remove(backup_path)
+                os.rename(pdf_path, backup_path)
+
+            os.rename(tmp_path, pdf_path)
+
+            backup_path = pdf_path + '.bak'
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+
             print(f"PDF 封面更新成功: {pdf_path}")
             return True
         except ImportError as e:
@@ -488,6 +512,8 @@ class EbookParser:
             return False
         except Exception as e:
             print(f"更新 PDF 封面失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def update_metadata_to_file(self, filepath: str, metadata: Dict[str, Any]) -> bool:
@@ -601,17 +627,28 @@ class EbookParser:
             writer.add_metadata(new_metadata)
 
             tmp_dir = os.path.dirname(pdf_path)
-            with tempfile.NamedTemporaryFile(
-                dir=tmp_dir, suffix='.pdf', delete=False
-            ) as tmp:
-                tmp_path = tmp.name
+            base_name = os.path.basename(pdf_path)
+            tmp_path = os.path.join(tmp_dir, f".tmp_{base_name}")
 
             with open(tmp_path, 'wb') as f:
                 writer.write(f)
 
-            shutil.move(tmp_path, pdf_path)
+            if os.path.exists(pdf_path):
+                backup_path = pdf_path + '.bak'
+                if os.path.exists(backup_path):
+                    os.remove(backup_path)
+                os.rename(pdf_path, backup_path)
+
+            os.rename(tmp_path, pdf_path)
+
+            backup_path = pdf_path + '.bak'
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+
             print(f"PDF 元数据更新成功: {pdf_path}")
             return True
         except Exception as e:
             print(f"更新 PDF 元数据失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
