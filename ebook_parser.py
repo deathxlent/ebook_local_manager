@@ -1,6 +1,8 @@
 import os
 import io
 import re
+import tempfile
+import shutil
 from typing import Dict, Any, Optional
 from bs4 import BeautifulSoup
 from ebooklib import epub
@@ -339,6 +341,24 @@ class EbookParser:
                     books.append(filepath)
         return books
 
+    def _write_epub_safe(self, epub_path: str, book) -> bool:
+        try:
+            tmp_dir = os.path.dirname(epub_path)
+            with tempfile.NamedTemporaryFile(
+                dir=tmp_dir, suffix='.epub', delete=False
+            ) as tmp:
+                tmp_path = tmp.name
+
+            epub.write_epub(tmp_path, book)
+            shutil.move(tmp_path, epub_path)
+            print(f"EPUB 写入成功: {epub_path}")
+            return True
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            print(f"EPUB 写入失败: {e}")
+            return False
+
     def format_file_size(self, size_bytes: int) -> str:
         if not size_bytes:
             return ''
@@ -399,15 +419,11 @@ class EbookParser:
                     pass
 
             if cover_item:
-                old_cover_id = cover_item.get_id()
-                book.items.remove(cover_item)
-                new_cover = epub.EpubImage(
-                    uid=old_cover_id,
-                    file_name=cover_filename,
-                    media_type=media_type,
-                    content=cover_data
-                )
-                book.add_item(new_cover)
+                old_id = cover_item.get_id() or 'cover-image'
+                old_filename = cover_item.get_name() or cover_filename
+                cover_item.set_content(cover_data)
+                cover_item.file_name = cover_filename
+                cover_item.media_type = media_type
             else:
                 new_cover = epub.EpubImage(
                     uid='cover-image',
@@ -418,9 +434,7 @@ class EbookParser:
                 book.add_item(new_cover)
                 book.add_metadata('OPF', 'cover', '', {'content': 'cover-image'})
 
-            epub.write_epub(epub_path, book)
-            print(f"EPUB 封面更新成功: {epub_path}")
-            return True
+            return self._write_epub_safe(epub_path, book)
         except Exception as e:
             print(f"更新 EPUB 封面失败: {e}")
             return False
@@ -542,9 +556,7 @@ class EbookParser:
                 else:
                     book.set_unique_metadata('DC', 'subject', str(subject))
 
-            epub.write_epub(epub_path, book)
-            print(f"EPUB 元数据更新成功: {epub_path}")
-            return True
+            return self._write_epub_safe(epub_path, book)
         except Exception as e:
             print(f"更新 EPUB 元数据失败: {e}")
             return False
