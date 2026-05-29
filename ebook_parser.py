@@ -442,38 +442,27 @@ class EbookParser:
     def _update_pdf_cover(self, pdf_path: str, cover_image_path: str) -> bool:
         try:
             from pypdf import PdfWriter, PdfReader
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.pagesizes import letter
 
             reader = PdfReader(pdf_path)
             writer = PdfWriter()
 
             img = Image.open(cover_image_path)
-            img_width, img_height = img.size
+            if img.mode in ('RGBA', 'P', 'LA'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'RGBA':
+                    background.paste(img, mask=img.split()[3])
+                else:
+                    background.paste(img, mask=img.split()[1])
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
 
-            page_width, page_height = letter
-            if img_width > img_height:
-                aspect = img_height / img_width
-                new_width = page_width
-                new_height = page_width * aspect
-            else:
-                aspect = img_width / img_height
-                new_height = page_height
-                new_width = page_height * aspect
+            img_pdf_bytes = io.BytesIO()
+            img.save(img_pdf_bytes, format='PDF', resolution=150.0)
+            img_pdf_bytes.seek(0)
 
-            x_pos = (page_width - new_width) / 2
-            y_pos = (page_height - new_height) / 2
-
-            packet = io.BytesIO()
-            c = canvas.Canvas(packet, pagesize=letter)
-            c.drawImage(cover_image_path, x_pos, y_pos, new_width, new_height)
-            c.save()
-            packet.seek(0)
-
-            from pypdf import PdfReader as PdfReader2
-            cover_reader = PdfReader2(packet)
+            cover_reader = PdfReader(img_pdf_bytes)
             cover_page = cover_reader.pages[0]
-
             writer.add_page(cover_page)
 
             for page in reader.pages:
@@ -482,9 +471,16 @@ class EbookParser:
             if reader.metadata:
                 writer.add_metadata(reader.metadata)
 
-            with open(pdf_path, 'wb') as f:
+            tmp_dir = os.path.dirname(pdf_path)
+            with tempfile.NamedTemporaryFile(
+                dir=tmp_dir, suffix='.pdf', delete=False
+            ) as tmp:
+                tmp_path = tmp.name
+
+            with open(tmp_path, 'wb') as f:
                 writer.write(f)
 
+            shutil.move(tmp_path, pdf_path)
             print(f"PDF 封面更新成功: {pdf_path}")
             return True
         except ImportError as e:
@@ -519,46 +515,43 @@ class EbookParser:
 
             title = metadata.get('title')
             if title:
-                book.set_unique_metadata('DC', 'title', str(title))
+                book.metadata['DC']['title'] = [(str(title), {})]
 
             authors = metadata.get('authors')
             if authors:
                 if isinstance(authors, list):
-                    for i, author in enumerate(authors):
-                        if i == 0:
-                            book.set_unique_metadata('DC', 'creator', str(author))
-                        else:
-                            book.add_metadata('DC', 'creator', str(author))
+                    book.metadata['DC']['creator'] = [(str(a), {}) for a in authors]
                 else:
-                    book.set_unique_metadata('DC', 'creator', str(authors))
+                    book.metadata['DC']['creator'] = [(str(authors), {})]
 
             isbn = metadata.get('isbn')
             if isbn:
-                book.set_unique_metadata('DC', 'identifier', str(isbn), {'id': 'isbn'})
+                book.metadata['DC']['identifier'] = [(str(isbn), {'id': 'isbn'})]
 
             publisher = metadata.get('publisher')
             if publisher:
-                book.set_unique_metadata('DC', 'publisher', str(publisher))
+                book.metadata['DC']['publisher'] = [(str(publisher), {})]
 
             pubdate = metadata.get('pubdate')
             if pubdate:
-                book.set_unique_metadata('DC', 'date', str(pubdate))
+                book.metadata['DC']['date'] = [(str(pubdate), {})]
 
             description = metadata.get('summary') or metadata.get('description')
             if description:
-                book.set_unique_metadata('DC', 'description', str(description))
+                book.metadata['DC']['description'] = [(str(description), {})]
 
             subject = metadata.get('tags') or metadata.get('category')
             if subject:
                 if isinstance(subject, list):
-                    for s in subject:
-                        book.add_metadata('DC', 'subject', str(s))
+                    book.metadata['DC']['subject'] = [(str(s), {}) for s in subject]
                 else:
-                    book.set_unique_metadata('DC', 'subject', str(subject))
+                    book.metadata['DC']['subject'] = [(str(subject), {})]
 
             return self._write_epub_safe(epub_path, book)
         except Exception as e:
             print(f"更新 EPUB 元数据失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def _update_pdf_metadata(self, pdf_path: str, metadata: Dict[str, Any]) -> bool:
@@ -607,9 +600,16 @@ class EbookParser:
 
             writer.add_metadata(new_metadata)
 
-            with open(pdf_path, 'wb') as f:
+            tmp_dir = os.path.dirname(pdf_path)
+            with tempfile.NamedTemporaryFile(
+                dir=tmp_dir, suffix='.pdf', delete=False
+            ) as tmp:
+                tmp_path = tmp.name
+
+            with open(tmp_path, 'wb') as f:
                 writer.write(f)
 
+            shutil.move(tmp_path, pdf_path)
             print(f"PDF 元数据更新成功: {pdf_path}")
             return True
         except Exception as e:
