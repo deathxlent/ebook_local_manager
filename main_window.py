@@ -98,27 +98,6 @@ class MainWindow(QMainWindow):
         self.export_csv_btn.clicked.connect(self.export_csv)
         top_layout.addWidget(self.export_csv_btn)
 
-        self.batch_parse_btn = QPushButton("🔍 批量解析豆瓣")
-        self.batch_parse_btn.setMinimumHeight(35)
-        self.batch_parse_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #FF9800;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
-        """)
-        self.batch_parse_btn.clicked.connect(self.batch_parse_douban)
-        top_layout.addWidget(self.batch_parse_btn)
-
         self.batch_delete_btn = QPushButton("🗑️ 批量删除选中")
         self.batch_delete_btn.setMinimumHeight(35)
         self.batch_delete_btn.setStyleSheet("""
@@ -685,8 +664,14 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.refresh_books()
 
-    def open_detail_window(self, book):
-        dialog = DetailWindow(self.db, book, self.douban_parser, self)
+    def open_detail_window(self, book, current_index=None):
+        if current_index is None:
+            for i, b in enumerate(self.books_data):
+                if b.get('id') == book.get('id'):
+                    current_index = i
+                    break
+        dialog = DetailWindow(self.db, book, self.douban_parser, self, self.books_data, current_index)
+        dialog.book_changed.connect(self.refresh_books)
         dialog.exec()
 
     def show_about(self):

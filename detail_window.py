@@ -3,18 +3,23 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdi
                              QTextEdit, QPushButton, QFormLayout, QMessageBox,
                              QDoubleSpinBox, QScrollArea, QWidget, QFrame, QApplication)
 from PyQt6.QtGui import QPixmap, QDesktopServices
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 
 from utils import safe_str
+from ebook_parser import EbookParser
 
 
 class DetailWindow(QDialog):
-    def __init__(self, db, book, douban_parser, parent=None):
+    book_changed = pyqtSignal()
+
+    def __init__(self, db, book, douban_parser, parent=None, books_data=None, current_index=0):
         super().__init__(parent)
         self.db = db
         self.book_data = book.copy() if book else {}
         self.original_book = book.copy() if book else {}
         self.douban_parser = douban_parser
+        self.books_data = books_data or []
+        self.current_index = current_index
         self.is_edit_mode = False
         self.init_ui()
 
@@ -170,6 +175,56 @@ class DetailWindow(QDialog):
         form_container.setWidget(form_widget)
         content_layout.addWidget(form_container, 1)
 
+        nav_btn_layout = QHBoxLayout()
+
+        self.prev_btn = QPushButton("⬅️ 上一本")
+        self.prev_btn.setMinimumHeight(40)
+        self.prev_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #607D8B;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #455A64;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.prev_btn.clicked.connect(self.go_prev)
+        self.prev_btn.setEnabled(self.current_index > 0)
+        nav_btn_layout.addWidget(self.prev_btn)
+
+        self.next_btn = QPushButton("下一本 ➡️")
+        self.next_btn.setMinimumHeight(40)
+        self.next_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #607D8B;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #455A64;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.next_btn.clicked.connect(self.go_next)
+        self.next_btn.setEnabled(self.current_index < len(self.books_data) - 1)
+        nav_btn_layout.addWidget(self.next_btn)
+
+        main_layout.addLayout(nav_btn_layout)
+
         btn_layout = QHBoxLayout()
 
         self.parse_btn = QPushButton("🔍 从豆瓣解析")
@@ -212,6 +267,50 @@ class DetailWindow(QDialog):
         """)
         self.open_btn.clicked.connect(self.open_book)
         btn_layout.addWidget(self.open_btn)
+
+        self.update_cover_btn = QPushButton("🖼️ 更新封面到文件")
+        self.update_cover_btn.setMinimumHeight(40)
+        self.update_cover_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9C27B0;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #7B1FA2;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.update_cover_btn.clicked.connect(self.update_cover_to_file)
+        btn_layout.addWidget(self.update_cover_btn)
+
+        self.update_meta_btn = QPushButton("📝 更新元数据到文件")
+        self.update_meta_btn.setMinimumHeight(40)
+        self.update_meta_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #00BCD4;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #0097A7;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.update_meta_btn.clicked.connect(self.update_metadata_to_file)
+        btn_layout.addWidget(self.update_meta_btn)
 
         btn_layout.addStretch()
 
@@ -340,8 +439,8 @@ class DetailWindow(QDialog):
         if self.db.update_book(self.book_data['id'], update_data):
             self.book_data.update(update_data)
             self.set_edit_mode(False)
+            self.book_changed.emit()
             QMessageBox.information(self, "成功", "修改已保存！")
-            self.accept()
         else:
             QMessageBox.warning(self, "错误", "保存失败！")
 
@@ -447,6 +546,148 @@ class DetailWindow(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             if self.db.delete_book(self.book_data['id']):
                 QMessageBox.information(self, "成功", "书籍已删除！")
+                self.book_changed.emit()
                 self.accept()
             else:
                 QMessageBox.warning(self, "错误", "删除失败！")
+
+    def go_prev(self):
+        if self.current_index > 0:
+            self.current_index -= 1
+            self.load_book(self.books_data[self.current_index])
+
+    def go_next(self):
+        if self.current_index < len(self.books_data) - 1:
+            self.current_index += 1
+            self.load_book(self.books_data[self.current_index])
+
+    def load_book(self, book):
+        self.book_data = book.copy() if book else {}
+        self.original_book = book.copy() if book else {}
+        self.setWindowTitle(f"书籍详情 - {self.book_data.get('title', '')}")
+
+        cover_path = self.book_data.get('cover_path')
+        if cover_path and os.path.exists(cover_path):
+            pixmap = QPixmap(cover_path)
+            self.cover_label.setPixmap(pixmap.scaled(
+                230, 330,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            ))
+        else:
+            self.cover_label.setText("无封面")
+
+        self.title_edit.setText(self.book_data.get('title', ''))
+        self.subtitle_edit.setText(self.book_data.get('subtitle', ''))
+        self.author_edit.setText(safe_str(self.book_data.get('authors', '')))
+        self.publisher_edit.setText(self.book_data.get('publisher', ''))
+        self.pubdate_edit.setText(self.book_data.get('pubdate', ''))
+        self.isbn_edit.setText(self.book_data.get('isbn', ''))
+        self.category_edit.setText(self.book_data.get('category', ''))
+        self.tags_edit.setText(safe_str(self.book_data.get('tags', '')))
+        self.series_edit.setText(self.book_data.get('series', ''))
+        self.rating_spin.setValue(float(self.book_data.get('rating', 0) or 0))
+        self.douban_edit.setText(self.book_data.get('douban_url', ''))
+        self.douban_id_edit.setText(self.book_data.get('douban_id', ''))
+        self.page_count_edit.setText(safe_str(self.book_data.get('page_count', '')))
+        self.summary_edit.setText(self.book_data.get('summary', ''))
+        self.notes_edit.setText(self.book_data.get('notes', ''))
+
+        self.set_edit_mode(False)
+        self.prev_btn.setEnabled(self.current_index > 0)
+        self.next_btn.setEnabled(self.current_index < len(self.books_data) - 1)
+
+        self.book_changed.emit()
+
+    def update_cover_to_file(self):
+        cover_path = self.book_data.get('cover_path')
+        if not cover_path or not os.path.exists(cover_path):
+            QMessageBox.warning(self, "提示", "没有可用的封面图片！")
+            return
+
+        filepath = self.book_data.get('physical_path')
+        if not filepath or not os.path.exists(filepath):
+            QMessageBox.warning(self, "提示", "书籍文件不存在！")
+            return
+
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext not in ['.epub', '.pdf']:
+            QMessageBox.warning(self, "提示", "仅支持 EPUB 和 PDF 格式！")
+            return
+
+        reply = QMessageBox.question(
+            self, "确认更新",
+            f"确定要将封面更新到原文件吗？\n\n这将修改原始电子书文件，建议先备份！\n\n文件: {os.path.basename(filepath)}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            parser = EbookParser()
+            if parser.update_cover_to_file(filepath, cover_path):
+                QMessageBox.information(self, "成功", "封面已更新到文件！")
+            else:
+                QMessageBox.warning(self, "错误", "更新封面失败，请查看控制台输出！")
+
+    def update_metadata_to_file(self):
+        filepath = self.book_data.get('physical_path')
+        if not filepath or not os.path.exists(filepath):
+            QMessageBox.warning(self, "提示", "书籍文件不存在！")
+            return
+
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext not in ['.epub', '.pdf']:
+            QMessageBox.warning(self, "提示", "仅支持 EPUB 和 PDF 格式！")
+            return
+
+        metadata = {}
+
+        title = self.title_edit.text().strip()
+        if title:
+            metadata['title'] = title
+
+        authors = self.author_edit.text().strip()
+        if authors:
+            if ',' in authors:
+                metadata['authors'] = [a.strip() for a in authors.split(',') if a.strip()]
+            else:
+                metadata['authors'] = authors
+
+        isbn = self.isbn_edit.text().strip()
+        if isbn:
+            metadata['isbn'] = isbn
+
+        publisher = self.publisher_edit.text().strip()
+        if publisher:
+            metadata['publisher'] = publisher
+
+        pubdate = self.pubdate_edit.text().strip()
+        if pubdate:
+            metadata['pubdate'] = pubdate
+
+        summary = self.summary_edit.toPlainText().strip()
+        if summary:
+            metadata['summary'] = summary
+
+        tags = self.tags_edit.text().strip()
+        if tags:
+            if ',' in tags:
+                metadata['tags'] = [t.strip() for t in tags.split(',') if t.strip()]
+            else:
+                metadata['tags'] = tags
+
+        if metadata:
+            meta_list = '\n'.join([f"{k}: {v}" for k, v in metadata.items()])
+            reply = QMessageBox.question(
+                self, "确认更新",
+                f"确定要将以下元数据更新到原文件吗？\n\n这将修改原始电子书文件，建议先备份！\n\n文件: {os.path.basename(filepath)}\n\n将更新的字段:\n{meta_list}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                parser = EbookParser()
+                if parser.update_metadata_to_file(filepath, metadata):
+                    QMessageBox.information(self, "成功", "元数据已更新到文件！")
+                else:
+                    QMessageBox.warning(self, "错误", "更新元数据失败，请查看控制台输出！")
+        else:
+            QMessageBox.information(self, "提示", "没有可更新的元数据字段！")

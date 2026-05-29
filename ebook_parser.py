@@ -350,3 +350,256 @@ class EbookParser:
             return f"{size_bytes / (1024 * 1024):.1f} MB"
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+    def update_cover_to_file(self, filepath: str, cover_image_path: str) -> bool:
+        if not os.path.exists(filepath):
+            print(f"文件不存在: {filepath}")
+            return False
+        if not os.path.exists(cover_image_path):
+            print(f"封面图片不存在: {cover_image_path}")
+            return False
+
+        ext = os.path.splitext(filepath)[1].lower()
+
+        try:
+            if ext == '.epub':
+                return self._update_epub_cover(filepath, cover_image_path)
+            elif ext == '.pdf':
+                return self._update_pdf_cover(filepath, cover_image_path)
+            else:
+                print(f"不支持的文件格式: {ext}")
+                return False
+        except Exception as e:
+            print(f"更新封面失败: {e}")
+            return False
+
+    def _update_epub_cover(self, epub_path: str, cover_image_path: str) -> bool:
+        try:
+            book = epub.read_epub(epub_path, options={'ignore_ncx': True})
+
+            with open(cover_image_path, 'rb') as f:
+                cover_data = f.read()
+
+            img = Image.open(cover_image_path)
+            ext = img.format.lower() if img.format else 'jpeg'
+            if ext not in ['jpeg', 'jpg', 'png']:
+                ext = 'jpeg'
+
+            cover_filename = f"cover.{ext}"
+            media_type = f"image/{'jpeg' if ext in ['jpeg', 'jpg'] else ext}"
+
+            cover_item = None
+            for item in book.get_items():
+                try:
+                    item_type = item.get_type() if hasattr(item, 'get_type') else None
+                    if item_type == 10:
+                        cover_item = item
+                        break
+                except:
+                    pass
+
+            if cover_item:
+                old_cover_id = cover_item.get_id()
+                book.items.remove(cover_item)
+                new_cover = epub.EpubImage(
+                    uid=old_cover_id,
+                    file_name=cover_filename,
+                    media_type=media_type,
+                    content=cover_data
+                )
+                book.add_item(new_cover)
+            else:
+                new_cover = epub.EpubImage(
+                    uid='cover-image',
+                    file_name=cover_filename,
+                    media_type=media_type,
+                    content=cover_data
+                )
+                book.add_item(new_cover)
+                book.add_metadata('OPF', 'cover', '', {'content': 'cover-image'})
+
+            epub.write_epub(epub_path, book)
+            print(f"EPUB 封面更新成功: {epub_path}")
+            return True
+        except Exception as e:
+            print(f"更新 EPUB 封面失败: {e}")
+            return False
+
+    def _update_pdf_cover(self, pdf_path: str, cover_image_path: str) -> bool:
+        try:
+            from pypdf import PdfWriter, PdfReader
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import letter
+
+            reader = PdfReader(pdf_path)
+            writer = PdfWriter()
+
+            img = Image.open(cover_image_path)
+            img_width, img_height = img.size
+
+            page_width, page_height = letter
+            if img_width > img_height:
+                aspect = img_height / img_width
+                new_width = page_width
+                new_height = page_width * aspect
+            else:
+                aspect = img_width / img_height
+                new_height = page_height
+                new_width = page_height * aspect
+
+            x_pos = (page_width - new_width) / 2
+            y_pos = (page_height - new_height) / 2
+
+            packet = io.BytesIO()
+            c = canvas.Canvas(packet, pagesize=letter)
+            c.drawImage(cover_image_path, x_pos, y_pos, new_width, new_height)
+            c.save()
+            packet.seek(0)
+
+            from pypdf import PdfReader as PdfReader2
+            cover_reader = PdfReader2(packet)
+            cover_page = cover_reader.pages[0]
+
+            writer.add_page(cover_page)
+
+            for page in reader.pages:
+                writer.add_page(page)
+
+            if reader.metadata:
+                writer.add_metadata(reader.metadata)
+
+            with open(pdf_path, 'wb') as f:
+                writer.write(f)
+
+            print(f"PDF 封面更新成功: {pdf_path}")
+            return True
+        except ImportError as e:
+            print(f"缺少依赖库: {e}")
+            return False
+        except Exception as e:
+            print(f"更新 PDF 封面失败: {e}")
+            return False
+
+    def update_metadata_to_file(self, filepath: str, metadata: Dict[str, Any]) -> bool:
+        if not os.path.exists(filepath):
+            print(f"文件不存在: {filepath}")
+            return False
+
+        ext = os.path.splitext(filepath)[1].lower()
+
+        try:
+            if ext == '.epub':
+                return self._update_epub_metadata(filepath, metadata)
+            elif ext == '.pdf':
+                return self._update_pdf_metadata(filepath, metadata)
+            else:
+                print(f"不支持的文件格式: {ext}")
+                return False
+        except Exception as e:
+            print(f"更新元数据失败: {e}")
+            return False
+
+    def _update_epub_metadata(self, epub_path: str, metadata: Dict[str, Any]) -> bool:
+        try:
+            book = epub.read_epub(epub_path, options={'ignore_ncx': True})
+
+            title = metadata.get('title')
+            if title:
+                book.set_unique_metadata('DC', 'title', str(title))
+
+            authors = metadata.get('authors')
+            if authors:
+                if isinstance(authors, list):
+                    for i, author in enumerate(authors):
+                        if i == 0:
+                            book.set_unique_metadata('DC', 'creator', str(author))
+                        else:
+                            book.add_metadata('DC', 'creator', str(author))
+                else:
+                    book.set_unique_metadata('DC', 'creator', str(authors))
+
+            isbn = metadata.get('isbn')
+            if isbn:
+                book.set_unique_metadata('DC', 'identifier', str(isbn), {'id': 'isbn'})
+
+            publisher = metadata.get('publisher')
+            if publisher:
+                book.set_unique_metadata('DC', 'publisher', str(publisher))
+
+            pubdate = metadata.get('pubdate')
+            if pubdate:
+                book.set_unique_metadata('DC', 'date', str(pubdate))
+
+            description = metadata.get('summary') or metadata.get('description')
+            if description:
+                book.set_unique_metadata('DC', 'description', str(description))
+
+            subject = metadata.get('tags') or metadata.get('category')
+            if subject:
+                if isinstance(subject, list):
+                    for s in subject:
+                        book.add_metadata('DC', 'subject', str(s))
+                else:
+                    book.set_unique_metadata('DC', 'subject', str(subject))
+
+            epub.write_epub(epub_path, book)
+            print(f"EPUB 元数据更新成功: {epub_path}")
+            return True
+        except Exception as e:
+            print(f"更新 EPUB 元数据失败: {e}")
+            return False
+
+    def _update_pdf_metadata(self, pdf_path: str, metadata: Dict[str, Any]) -> bool:
+        try:
+            from pypdf import PdfWriter, PdfReader
+
+            reader = PdfReader(pdf_path)
+            writer = PdfWriter()
+
+            for page in reader.pages:
+                writer.add_page(page)
+
+            new_metadata = {}
+            if reader.metadata:
+                new_metadata.update(reader.metadata)
+
+            title = metadata.get('title')
+            if title:
+                new_metadata['/Title'] = str(title)
+
+            authors = metadata.get('authors')
+            if authors:
+                if isinstance(authors, list):
+                    new_metadata['/Author'] = ', '.join(map(str, authors))
+                else:
+                    new_metadata['/Author'] = str(authors)
+
+            isbn = metadata.get('isbn')
+            if isbn:
+                new_metadata['/ISBN'] = str(isbn)
+
+            publisher = metadata.get('publisher')
+            if publisher:
+                new_metadata['/Publisher'] = str(publisher)
+
+            description = metadata.get('summary') or metadata.get('description')
+            if description:
+                new_metadata['/Subject'] = str(description)
+
+            tags = metadata.get('tags')
+            if tags:
+                if isinstance(tags, list):
+                    new_metadata['/Keywords'] = ', '.join(map(str, tags))
+                else:
+                    new_metadata['/Keywords'] = str(tags)
+
+            writer.add_metadata(new_metadata)
+
+            with open(pdf_path, 'wb') as f:
+                writer.write(f)
+
+            print(f"PDF 元数据更新成功: {pdf_path}")
+            return True
+        except Exception as e:
+            print(f"更新 PDF 元数据失败: {e}")
+            return False
