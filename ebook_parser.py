@@ -65,8 +65,8 @@ class EbookParser:
                 clean_desc = re.sub(r'\s+', ' ', clean_desc).strip()
                 data['summary'] = clean_desc[:2000]
 
-            isbn = self._get_metadata(book, 'identifier')
-            if isbn and len(isbn) in [10, 13] and isbn.isdigit():
+            isbn = self._get_isbn_from_epub(book)
+            if isbn:
                 data['isbn'] = isbn
 
             subjects = self._get_all_metadata(book, 'subject')
@@ -101,19 +101,27 @@ class EbookParser:
             if reader.metadata:
                 metadata = reader.metadata
 
-                def get_meta(key, default=None):
-                    try:
-                        if hasattr(metadata, key):
-                            value = getattr(metadata, key)
-                            if value:
-                                return value
-                        if key in metadata:
-                            value = metadata[key]
-                            if value:
-                                return value
-                    except:
-                        pass
-                    return default
+                def get_meta(*keys):
+                    for key in keys:
+                        try:
+                            if key.startswith('/'):
+                                if key in metadata:
+                                    value = metadata[key]
+                                    if value:
+                                        return value
+                            else:
+                                if hasattr(metadata, key):
+                                    value = getattr(metadata, key)
+                                    if value:
+                                        return value
+                                pdf_key = '/' + key.capitalize()
+                                if pdf_key in metadata:
+                                    value = metadata[pdf_key]
+                                    if value:
+                                        return value
+                        except:
+                            pass
+                    return None
 
                 title = get_meta('title')
                 if title:
@@ -127,20 +135,27 @@ class EbookParser:
                 if subject:
                     data['summary'] = subject[:2000] if len(subject) > 2000 else subject
 
-                publisher = get_meta('publisher')
+                publisher = get_meta('publisher', 'Publisher')
                 if publisher:
                     data['publisher'] = publisher
 
+                isbn = get_meta('/ISBN', 'isbn', 'ISBN', 'Isbn')
+                if isbn:
+                    isbn_clean = str(isbn).replace('-', '').replace(' ', '')
+                    if isbn_clean.isdigit() and len(isbn_clean) in [10, 13]:
+                        data['isbn'] = str(isbn)
+
                 keywords = get_meta('keywords')
                 if keywords:
-                    kw_list = [k.strip() for k in keywords.split(',') if k.strip()]
+                    kw_list = [k.strip() for k in str(keywords).split(',') if k.strip()]
                     if kw_list:
                         data['tags'] = kw_list
-                    for kw in kw_list:
-                        kw_clean = kw.replace('-', '').replace(' ', '')
-                        if kw_clean.isdigit() and len(kw_clean) in [10, 13]:
-                            data['isbn'] = kw_clean
-                            break
+                    if 'isbn' not in data:
+                        for kw in kw_list:
+                            kw_clean = kw.replace('-', '').replace(' ', '')
+                            if kw_clean.isdigit() and len(kw_clean) in [10, 13]:
+                                data['isbn'] = kw_clean
+                                break
 
                 data['page_count'] = len(reader.pages)
 
@@ -213,6 +228,23 @@ class EbookParser:
         except:
             pass
         return []
+
+    def _get_isbn_from_epub(self, book) -> Optional[str]:
+        try:
+            identifiers = book.get_metadata('DC', 'identifier')
+            for value, attrs in identifiers:
+                if attrs and isinstance(attrs, dict) and attrs.get('id') == 'isbn':
+                    if value and isinstance(value, str):
+                        value_clean = value.replace('-', '').replace(' ', '')
+                        if value_clean.isdigit() and len(value_clean) in [10, 13]:
+                            return value
+                elif value and isinstance(value, str):
+                    value_clean = value.replace('-', '').replace(' ', '')
+                    if value_clean.isdigit() and len(value_clean) in [10, 13]:
+                        return value
+        except:
+            pass
+        return None
 
     def _get_metadata(self, book, name: str) -> Optional[str]:
         try:
@@ -606,6 +638,15 @@ class EbookParser:
 
             isbn = metadata.get('isbn')
             if isbn:
+                try:
+                    if DC_NS in book.metadata and 'identifier' in book.metadata[DC_NS]:
+                        book.metadata[DC_NS]['identifier'] = [
+                            item for item in book.metadata[DC_NS]['identifier']
+                            if not (isinstance(item, tuple) and len(item) > 1 and 
+                                    isinstance(item[1], dict) and item[1].get('id') == 'isbn')
+                        ]
+                except:
+                    pass
                 book.add_metadata('DC', 'identifier', str(isbn), {'id': 'isbn'})
 
             publisher = metadata.get('publisher')
