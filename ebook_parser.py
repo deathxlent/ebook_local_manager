@@ -55,13 +55,15 @@ class EbookParser:
             if title:
                 data['title'] = title
 
-            creator = self._get_metadata(book, 'creator')
-            if creator:
-                data['authors'] = [creator]
+            creators = self._get_all_metadata(book, 'creator')
+            if creators:
+                data['authors'] = creators
 
             description = self._get_metadata(book, 'description')
             if description:
-                data['summary'] = description[:2000]
+                clean_desc = re.sub(r'<[^>]+>', '', description)
+                clean_desc = re.sub(r'\s+', ' ', clean_desc).strip()
+                data['summary'] = clean_desc[:2000]
 
             isbn = self._get_metadata(book, 'identifier')
             if isbn and len(isbn) in [10, 13] and isbn.isdigit():
@@ -375,6 +377,17 @@ class EbookParser:
             base_name = os.path.basename(epub_path)
             tmp_path = os.path.join(tmp_dir, f".tmp_{base_name}")
 
+            def fix_toc_uid(items, counter=0):
+                for item in items:
+                    if isinstance(item, tuple):
+                        counter = fix_toc_uid(item[1], counter)
+                    elif hasattr(item, 'uid') and item.uid is None:
+                        item.uid = f'navpoint_{counter}'
+                        counter += 1
+                return counter
+
+            fix_toc_uid(book.toc)
+
             epub.write_epub(tmp_path, book)
 
             if os.path.exists(epub_path):
@@ -567,10 +580,13 @@ class EbookParser:
         try:
             book = epub.read_epub(epub_path, options={'ignore_ncx': True})
 
+            DC_NS = 'http://purl.org/dc/elements/1.1/'
+
             def clear_field(name):
                 try:
-                    if 'DC' in book.metadata and name in book.metadata['DC']:
-                        del book.metadata['DC'][name]
+                    if hasattr(book, 'metadata') and DC_NS in book.metadata:
+                        if name in book.metadata[DC_NS]:
+                            del book.metadata[DC_NS][name]
                 except:
                     pass
 
@@ -590,7 +606,6 @@ class EbookParser:
 
             isbn = metadata.get('isbn')
             if isbn:
-                clear_field('identifier')
                 book.add_metadata('DC', 'identifier', str(isbn), {'id': 'isbn'})
 
             publisher = metadata.get('publisher')
