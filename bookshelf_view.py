@@ -13,6 +13,7 @@ class BookCard(QFrame):
     def __init__(self, book, parent=None):
         super().__init__(parent)
         self.book = book
+        self.is_selected = False
         self.init_ui()
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
@@ -20,18 +21,7 @@ class BookCard(QFrame):
     def init_ui(self):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setFrameShadow(QFrame.Shadow.Raised)
-        self.setStyleSheet("""
-            BookCard {
-                background-color: white;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                padding: 10px;
-            }
-            BookCard:hover {
-                background-color: #f5f5f5;
-                border: 1px solid #bdbdbd;
-            }
-        """)
+        self.update_style()
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
@@ -89,6 +79,38 @@ class BookCard(QFrame):
         author_label.setFixedWidth(120)
         author_label.setStyleSheet("color: #666; font-size: 9px;")
         layout.addWidget(author_label)
+
+    def update_style(self):
+        if self.is_selected:
+            self.setStyleSheet("""
+                BookCard {
+                    background-color: #E3F2FD;
+                    border: 2px solid #2196F3;
+                    border-radius: 8px;
+                    padding: 10px;
+                }
+                BookCard:hover {
+                    background-color: #BBDEFB;
+                    border: 2px solid #1976D2;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                BookCard {
+                    background-color: white;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 8px;
+                    padding: 10px;
+                }
+                BookCard:hover {
+                    background-color: #f5f5f5;
+                    border: 1px solid #bdbdbd;
+                }
+            """)
+
+    def set_selected(self, selected):
+        self.is_selected = selected
+        self.update_style()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -159,6 +181,8 @@ class BookshelfView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.books_data = []
+        self.selected_book_id = None
+        self.cards = []
         self.init_ui()
 
     def init_ui(self):
@@ -180,9 +204,11 @@ class BookshelfView(QWidget):
 
     def set_books(self, books_data):
         self.books_data = books_data
+        self.selected_book_id = None
         self.update_view()
 
     def update_view(self):
+        self.cards = []
         for i in reversed(range(self.grid_layout.count())):
             widget = self.grid_layout.itemAt(i).widget()
             if widget:
@@ -196,9 +222,19 @@ class BookshelfView(QWidget):
             
             card = BookCard(book)
             card.clicked.connect(self.on_book_clicked)
+            self.cards.append(card)
             self.grid_layout.addWidget(card, row, col)
 
     def on_book_clicked(self, book):
+        for card in self.cards:
+            card.set_selected(False)
+        
+        for card in self.cards:
+            if card.book.get('id') == book.get('id'):
+                card.set_selected(True)
+                break
+        
+        self.selected_book_id = book.get('id')
         self.book_clicked.emit(book)
 
     def resizeEvent(self, event):
