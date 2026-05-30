@@ -97,7 +97,7 @@ class BookCard(QFrame):
 
     def enterEvent(self, event):
         tooltip_text = self.format_tooltip()
-        QToolTip.showText(event.globalPos(), tooltip_text, self)
+        QToolTip.showText(event.globalPosition().toPoint(), tooltip_text, self)
         super().enterEvent(event)
 
     def format_tooltip(self):
