@@ -173,6 +173,6 @@ class TreeView(QWidget):
             if index.isValid():
                 item = self.tree.itemFromIndex(index)
                 if isinstance(item, TreeBookItem):
-                    QToolTip.showText(event.globalPosition().toPoint(), item.get_tooltip_text(), self.tree)
+                    QToolTip.showText(event.globalPos(), item.get_tooltip_text(), self.tree)
                     return True
         return super().eventFilter(obj, event)
