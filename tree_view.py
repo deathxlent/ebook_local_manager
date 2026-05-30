@@ -13,66 +13,76 @@ class TreeBookItem(QTreeWidgetItem):
         self.book = book
         self.is_folder = book is None
 
-    def get_tooltip_text(self):
+    def get_tooltip_html(self):
         if self.is_folder:
             return self.text(0)
         
         book = self.book
-        lines = []
+        parts = []
         
         cover_path = book.get('cover_path')
         if cover_path and os.path.exists(cover_path):
-            lines.append("[封面]")
+            from pathlib import Path
+            img_path = Path(cover_path).as_posix()
+            parts.append(f'<img src="{img_path}" width="120" height="160" style="float:left; margin-right:8px;"/>')
+        
+        info_parts = []
         
         title = safe_str(book.get('title'))
         if title:
-            lines.append(f"标题: {title}")
+            info_parts.append(f"<b>{title}</b>")
         
         subtitle = safe_str(book.get('subtitle'))
         if subtitle:
-            lines.append(f"副标题: {subtitle}")
+            info_parts.append(f"副标题: {subtitle}")
         
         authors = safe_str(book.get('authors'))
         if isinstance(authors, list):
             authors = ', '.join(authors)
         if authors:
-            lines.append(f"作者: {authors}")
+            info_parts.append(f"作者: {authors}")
         
         publisher = safe_str(book.get('publisher'))
         if publisher:
-            lines.append(f"出版社: {publisher}")
+            info_parts.append(f"出版社: {publisher}")
         
         pubdate = safe_str(book.get('pubdate'))
         if pubdate:
-            lines.append(f"出版日期: {pubdate}")
+            info_parts.append(f"出版日期: {pubdate}")
         
         isbn = safe_str(book.get('isbn'))
         if isbn:
-            lines.append(f"ISBN: {isbn}")
+            info_parts.append(f"ISBN: {isbn}")
         
         category = safe_str(book.get('category'))
         if category:
-            lines.append(f"分类: {category}")
+            info_parts.append(f"分类: {category}")
         
         tags = safe_str(book.get('tags'))
         if isinstance(tags, list):
             tags = ', '.join(tags)
         if tags:
-            lines.append(f"标签: {tags}")
+            info_parts.append(f"标签: {tags}")
         
         rating = book.get('rating')
         if rating:
-            lines.append(f"评分: {rating:.1f}")
+            info_parts.append(f"评分: {rating:.1f}")
         
         series = safe_str(book.get('series'))
         if series:
-            lines.append(f"丛书: {series}")
+            info_parts.append(f"丛书: {series}")
         
         extension = safe_str(book.get('extension'))
         if extension:
-            lines.append(f"格式: {extension.upper()}")
+            info_parts.append(f"格式: {extension.upper()}")
         
-        return '\n'.join(lines)
+        if parts:
+            info_text = '<br/>'.join(info_parts)
+            parts.append(f'<div style="margin-left:2px;">{info_text}</div>')
+            parts.append('<div style="clear:both;"></div>')
+            return ''.join(parts)
+        else:
+            return '<br/>'.join(info_parts)
 
 
 class TreeView(QWidget):
@@ -96,6 +106,24 @@ class TreeView(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         self.tree.setColumnWidth(1, 200)
+
+        self.tree.setStyleSheet("""
+            QTreeWidget::item:selected {
+                background-color: #E3F2FD;
+                color: #2196F3;
+                border: 1px solid #2196F3;
+                border-radius: 4px;
+            }
+            QTreeWidget::item:selected:!active {
+                background-color: #E3F2FD;
+                color: #2196F3;
+                border: 1px solid #2196F3;
+                border-radius: 4px;
+            }
+            QTreeWidget::item:hover {
+                background-color: #f5f5f5;
+            }
+        """)
 
         self.tree.setMouseTracking(True)
         self.tree.itemClicked.connect(self.on_item_clicked)
@@ -173,6 +201,6 @@ class TreeView(QWidget):
             if index.isValid():
                 item = self.tree.itemFromIndex(index)
                 if isinstance(item, TreeBookItem):
-                    QToolTip.showText(event.globalPos(), item.get_tooltip_text(), self.tree)
+                    QToolTip.showText(event.globalPos(), item.get_tooltip_html(), self.tree)
                     return True
         return super().eventFilter(obj, event)
