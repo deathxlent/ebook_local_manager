@@ -4,7 +4,8 @@ import csv
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QTableWidget, QTableWidgetItem, QLineEdit, QLabel,
                              QPushButton, QMenuBar, QMenu, QHeaderView, QMessageBox,
-                             QAbstractItemView, QCheckBox, QFileDialog)
+                             QAbstractItemView, QCheckBox, QFileDialog, QStackedWidget,
+                             QButtonGroup)
 from PyQt6.QtGui import QPixmap, QDesktopServices
 from PyQt6.QtCore import Qt, QUrl
 
@@ -15,6 +16,8 @@ from detail_window import DetailWindow
 from settings_window import SettingsWindow
 from douban_parser import DoubanParser
 from utils import safe_str, sanitize_filename
+from bookshelf_view import BookshelfView
+from tree_view import TreeView
 
 
 class MainWindow(QMainWindow):
@@ -27,12 +30,13 @@ class MainWindow(QMainWindow):
         self.sort_order = "ASC"
         self.current_search = ""
         self.books_data = []
+        self.current_view = "list"
         self.init_ui()
         self.refresh_books()
         self.setup_douban_callbacks()
 
     def init_ui(self):
-        self.setWindowTitle("电子书管理器 v2.0")
+        self.setWindowTitle("电子书管理器 v2.1")
         self.setMinimumSize(1600, 850)
 
         central_widget = QWidget()
@@ -47,6 +51,55 @@ class MainWindow(QMainWindow):
         self.search_input.setPlaceholderText("标题、作者、分类、ISBN、标签...")
         self.search_input.textChanged.connect(self.on_search)
         top_layout.addWidget(self.search_input, 1)
+
+        view_layout = QHBoxLayout()
+        view_layout.setSpacing(0)
+        
+        self.list_view_btn = QPushButton("📋 列表")
+        self.list_view_btn.setCheckable(True)
+        self.list_view_btn.setChecked(True)
+        self.list_view_btn.setMinimumHeight(35)
+        self.list_view_btn.clicked.connect(lambda: self.switch_view("list"))
+        
+        self.bookshelf_view_btn = QPushButton("📚 书架")
+        self.bookshelf_view_btn.setCheckable(True)
+        self.bookshelf_view_btn.setMinimumHeight(35)
+        self.bookshelf_view_btn.clicked.connect(lambda: self.switch_view("bookshelf"))
+        
+        self.tree_view_btn = QPushButton("🌳 目录树")
+        self.tree_view_btn.setCheckable(True)
+        self.tree_view_btn.setMinimumHeight(35)
+        self.tree_view_btn.clicked.connect(lambda: self.switch_view("tree"))
+
+        self.view_group = QButtonGroup()
+        self.view_group.addButton(self.list_view_btn)
+        self.view_group.addButton(self.bookshelf_view_btn)
+        self.view_group.addButton(self.tree_view_btn)
+
+        view_btn_style = """
+            QPushButton {
+                background-color: #e0e0e0;
+                border: 1px solid #bdbdbd;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:checked {
+                background-color: #2196F3;
+                color: white;
+                border: 1px solid #1976D2;
+            }
+            QPushButton:hover:!checked {
+                background-color: #bdbdbd;
+            }
+        """
+        self.list_view_btn.setStyleSheet(view_btn_style)
+        self.bookshelf_view_btn.setStyleSheet(view_btn_style)
+        self.tree_view_btn.setStyleSheet(view_btn_style)
+
+        view_layout.addWidget(self.list_view_btn)
+        view_layout.addWidget(self.bookshelf_view_btn)
+        view_layout.addWidget(self.tree_view_btn)
+        top_layout.addLayout(view_layout)
 
         self.select_all_btn = QPushButton("☑️ 全选")
         self.select_all_btn.setMinimumHeight(35)
@@ -162,6 +215,8 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(top_layout)
 
+        self.view_stack = QStackedWidget()
+
         self.table = QTableWidget()
         self.table.setColumnCount(15)
         self.table.setHorizontalHeaderLabels([
@@ -188,7 +243,18 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().sectionClicked.connect(self.on_header_clicked)
         self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
 
-        main_layout.addWidget(self.table)
+        self.view_stack.addWidget(self.table)
+
+        self.bookshelf_view = BookshelfView()
+        self.bookshelf_view.book_clicked.connect(self.on_bookshelf_book_clicked)
+        self.view_stack.addWidget(self.bookshelf_view)
+
+        self.tree_view = TreeView()
+        self.tree_view.book_clicked.connect(self.on_tree_book_clicked)
+        self.tree_view.book_double_clicked.connect(self.on_tree_book_double_clicked)
+        self.view_stack.addWidget(self.tree_view)
+
+        main_layout.addWidget(self.view_stack)
 
         self.status_label = QLabel("就绪")
         main_layout.addWidget(self.status_label)
@@ -258,8 +324,29 @@ class MainWindow(QMainWindow):
         for row, book in enumerate(self.books_data):
             self.set_book_row(row, book)
 
+        self.bookshelf_view.set_books(self.books_data)
+        self.tree_view.set_books(self.books_data)
+
         self.update_status()
         self.update_delete_button_state()
+
+    def switch_view(self, view_type):
+        self.current_view = view_type
+        if view_type == "list":
+            self.view_stack.setCurrentWidget(self.table)
+        elif view_type == "bookshelf":
+            self.view_stack.setCurrentWidget(self.bookshelf_view)
+        elif view_type == "tree":
+            self.view_stack.setCurrentWidget(self.tree_view)
+
+    def on_bookshelf_book_clicked(self, book):
+        self.open_detail_window(book)
+
+    def on_tree_book_clicked(self, book):
+        pass
+
+    def on_tree_book_double_clicked(self, book):
+        self.open_detail_window(book)
 
     def update_status(self):
         total = len(self.books_data)
