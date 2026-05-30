@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdi
 from PyQt6.QtGui import QPixmap, QDesktopServices
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 
-from utils import safe_str
+from utils import safe_str, sanitize_filename
 from ebook_parser import EbookParser
 
 
@@ -332,6 +332,25 @@ class DetailWindow(QDialog):
         """)
         self.update_meta_btn.clicked.connect(self.update_metadata_to_file)
         btn_layout.addWidget(self.update_meta_btn)
+
+        self.rename_btn = QPushButton("🔤 重命名")
+        self.rename_btn.setMinimumHeight(40)
+        self.rename_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #673AB7;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #512DA8;
+            }
+        """)
+        self.rename_btn.clicked.connect(self.rename_file)
+        btn_layout.addWidget(self.rename_btn)
 
         btn_layout.addStretch()
 
@@ -768,3 +787,54 @@ class DetailWindow(QDialog):
                     QMessageBox.warning(self, "错误", "更新元数据失败，请查看控制台输出！")
         else:
             QMessageBox.information(self, "提示", "没有可更新的元数据字段！")
+
+    def rename_file(self):
+        old_path = self.book_data.get('physical_path')
+        if not old_path or not os.path.exists(old_path):
+            QMessageBox.warning(self, "错误", "文件不存在，无法重命名！")
+            return
+
+        title = safe_str(self.book_data.get('title')).strip()
+        authors = safe_str(self.book_data.get('authors')).strip()
+        ext = safe_str(self.book_data.get('extension')).strip()
+
+        if not ext:
+            ext = os.path.splitext(old_path)[1].lstrip('.')
+
+        if not title:
+            QMessageBox.warning(self, "错误", "标题为空，无法重命名！")
+            return
+
+        new_filename = f"{title}"
+        if authors:
+            new_filename += f" - {authors}"
+        if ext:
+            new_filename += f".{ext}"
+
+        new_filename = sanitize_filename(new_filename)
+        old_dir = os.path.dirname(old_path)
+        new_path = os.path.join(old_dir, new_filename)
+
+        if old_path == new_path:
+            QMessageBox.information(self, "提示", "文件名已经是规范格式，无需重命名！")
+            return
+
+        reply = QMessageBox.question(
+            self, "确认重命名",
+            f"将文件重命名为：\n\n{new_filename}\n\n确定吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                if os.path.exists(new_path):
+                    QMessageBox.warning(self, "错误", f"文件已存在：\n{new_path}")
+                    return
+
+                os.rename(old_path, new_path)
+                self.db.update_book(self.book_data['id'], {'physical_path': new_path})
+                self.book_data['physical_path'] = new_path
+                QMessageBox.information(self, "成功", "文件重命名成功！")
+                self.book_changed.emit()
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"重命名失败：{str(e)}")

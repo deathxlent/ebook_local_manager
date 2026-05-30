@@ -120,6 +120,46 @@ class MainWindow(QMainWindow):
         self.batch_delete_btn.setEnabled(False)
         top_layout.addWidget(self.batch_delete_btn)
 
+        self.cleanup_btn = QPushButton("🧹 一键清理")
+        self.cleanup_btn.setMinimumHeight(35)
+        self.cleanup_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+        """)
+        self.cleanup_btn.clicked.connect(self.cleanup_all)
+        top_layout.addWidget(self.cleanup_btn)
+
+        self.export_covers_btn = QPushButton("🖼️ 导出封面")
+        self.export_covers_btn.setMinimumHeight(35)
+        self.export_covers_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #388E3C;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.export_covers_btn.clicked.connect(self.export_covers)
+        self.export_covers_btn.setEnabled(False)
+        top_layout.addWidget(self.export_covers_btn)
+
         main_layout.addLayout(top_layout)
 
         self.table = QTableWidget()
@@ -178,6 +218,11 @@ class MainWindow(QMainWindow):
 
         export_action = file_menu.addAction("导出CSV")
         export_action.triggered.connect(self.export_csv)
+
+        file_menu.addSeparator()
+
+        cleanup_action = file_menu.addAction("一键清理")
+        cleanup_action.triggered.connect(self.cleanup_all)
 
         file_menu.addSeparator()
 
@@ -394,6 +439,7 @@ class MainWindow(QMainWindow):
         checked_count = len(self.get_checked_rows())
         self.batch_delete_btn.setEnabled(checked_count > 0)
         self.batch_rename_btn.setEnabled(checked_count > 0)
+        self.export_covers_btn.setEnabled(checked_count > 0)
         self.update_status()
 
     def toggle_select_all(self):
@@ -673,6 +719,138 @@ class MainWindow(QMainWindow):
         dialog = DetailWindow(self.db, book, self.douban_parser, self, self.books_data, current_index)
         dialog.book_changed.connect(self.refresh_books)
         dialog.exec()
+
+    def export_covers(self):
+        checked_rows = self.get_checked_rows()
+        if not checked_rows:
+            return
+
+        export_dir = QFileDialog.getExistingDirectory(self, "选择导出目录")
+        if not export_dir:
+            return
+
+        success_count = 0
+        skip_count = 0
+        error_count = 0
+
+        for row in checked_rows:
+            if 0 <= row < len(self.books_data):
+                book = self.books_data[row]
+                cover_path = book.get('cover_path')
+
+                if not cover_path or not os.path.exists(cover_path):
+                    skip_count += 1
+                    continue
+
+                title = safe_str(book.get('title')).strip()
+                authors = safe_str(book.get('authors')).strip()
+
+                new_filename = f"{title}"
+                if authors:
+                    new_filename += f" - {authors}"
+                new_filename = sanitize_filename(new_filename)
+
+                ext = os.path.splitext(cover_path)[1]
+                if not ext:
+                    ext = '.jpg'
+                new_filename += ext
+
+                dest_path = os.path.join(export_dir, new_filename)
+
+                if os.path.exists(dest_path):
+                    base_name = sanitize_filename(title)
+                    if authors:
+                        base_name += f" - {sanitize_filename(authors)}"
+                    counter = 1
+                    while os.path.exists(dest_path):
+                        dest_path = os.path.join(export_dir, f"{base_name}_{counter}{ext}")
+                        counter += 1
+
+                try:
+                    import shutil
+                    shutil.copy2(cover_path, dest_path)
+                    success_count += 1
+                except Exception as e:
+                    print(f"导出封面失败: {cover_path} -> {dest_path}, {e}")
+                    error_count += 1
+
+        result_msg = f"封面导出完成！\n\n成功: {success_count} 个\n跳过: {skip_count} 个\n失败: {error_count} 个"
+        QMessageBox.information(self, "完成", result_msg)
+
+    def cleanup_all(self):
+        covers_dir = os.path.join(os.path.dirname(__file__), 'covers')
+        all_books = self.db.get_all_books()
+
+        cover_files_to_delete = []
+        books_to_delete = []
+
+        if os.path.exists(covers_dir):
+            all_cover_paths = set()
+            for book in all_books:
+                cover_path = book.get('cover_path')
+                if cover_path:
+                    all_cover_paths.add(os.path.abspath(cover_path))
+
+            for filename in os.listdir(covers_dir):
+                filepath = os.path.join(covers_dir, filename)
+                if os.path.isfile(filepath):
+                    abs_path = os.path.abspath(filepath)
+                    if abs_path not in all_cover_paths:
+                        cover_files_to_delete.append(filepath)
+
+        for book in all_books:
+            physical_path = book.get('physical_path')
+            if not physical_path or not os.path.exists(physical_path):
+                books_to_delete.append(book)
+
+        if not cover_files_to_delete and not books_to_delete:
+            QMessageBox.information(self, "提示", "数据库和封面文件都是最新的，没有需要清理的内容。")
+            return
+
+        msg_parts = []
+        if cover_files_to_delete:
+            msg_parts.append(f"未关联的封面文件: {len(cover_files_to_delete)} 个")
+        if books_to_delete:
+            msg_parts.append(f"物理文件不存在的书籍记录: {len(books_to_delete)} 条")
+            for book in books_to_delete[:5]:
+                title = book.get('title') or '未知标题'
+                path = book.get('physical_path') or '无路径'
+                msg_parts.append(f"  - {title} ({path})")
+            if len(books_to_delete) > 5:
+                msg_parts.append(f"  ... 还有 {len(books_to_delete) - 5} 条")
+
+        reply = QMessageBox.question(
+            self, "确认清理",
+            "检测到以下需要清理的内容：\n\n" + "\n".join(msg_parts) + "\n\n确定要清理吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            deleted_covers = 0
+            deleted_books = 0
+
+            for filepath in cover_files_to_delete:
+                try:
+                    os.remove(filepath)
+                    deleted_covers += 1
+                except Exception as e:
+                    print(f"删除封面文件失败: {filepath}, {e}")
+
+            for book in books_to_delete:
+                try:
+                    self.db.delete_book(book['id'])
+                    deleted_books += 1
+                except Exception as e:
+                    print(f"删除书籍记录失败: {book.get('id')}, {e}")
+
+            result_msg = f"清理完成！\n\n"
+            if cover_files_to_delete:
+                result_msg += f"删除封面文件: {deleted_covers} / {len(cover_files_to_delete)} 个\n"
+            if books_to_delete:
+                result_msg += f"删除书籍记录: {deleted_books} / {len(books_to_delete)} 条"
+
+            QMessageBox.information(self, "完成", result_msg)
+            self.refresh_books()
 
     def show_about(self):
         QMessageBox.about(
