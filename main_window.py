@@ -30,6 +30,7 @@ class MainWindow(QMainWindow):
         self.sort_order = "ASC"
         self.current_search = ""
         self.books_data = []
+        self.search_results = []
         self.current_view = "list"
         self.init_ui()
         self.refresh_books()
@@ -51,6 +52,15 @@ class MainWindow(QMainWindow):
         self.search_input.setPlaceholderText("标题、作者、分类、ISBN、标签...")
         self.search_input.textChanged.connect(self.on_search)
         top_layout.addWidget(self.search_input, 1)
+
+        self.filter_label = QLabel("筛选:")
+        self.filter_label.setVisible(False)
+        top_layout.addWidget(self.filter_label)
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("在搜索结果中筛选...")
+        self.filter_input.setVisible(False)
+        self.filter_input.textChanged.connect(self.on_filter)
+        top_layout.addWidget(self.filter_input, 1)
 
         view_layout = QHBoxLayout()
         view_layout.setSpacing(0)
@@ -247,6 +257,7 @@ class MainWindow(QMainWindow):
 
         self.bookshelf_view = BookshelfView()
         self.bookshelf_view.book_clicked.connect(self.on_bookshelf_book_clicked)
+        self.bookshelf_view.book_double_clicked.connect(self.on_bookshelf_book_double_clicked)
         self.view_stack.addWidget(self.bookshelf_view)
 
         self.tree_view = TreeView()
@@ -313,11 +324,17 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "成功", "配置已保存！")
 
     def refresh_books(self):
-        self.books_data = self.db.get_all_books(
+        self.search_results = self.db.get_all_books(
             sort_by=self.get_sort_column_name(self.sort_column),
             order=self.sort_order,
             search=self.current_search
         )
+
+        filter_text = self.filter_input.text().strip().lower() if self.filter_input.isVisible() else ""
+        if filter_text:
+            self.books_data = [b for b in self.search_results if self._book_matches(b, filter_text)]
+        else:
+            self.books_data = list(self.search_results)
 
         self.table.setRowCount(len(self.books_data))
 
@@ -330,6 +347,15 @@ class MainWindow(QMainWindow):
         self.update_status()
         self.update_delete_button_state()
 
+    def _book_matches(self, book, filter_text):
+        fields = ['title', 'subtitle', 'authors', 'category', 'isbn', 'tags',
+                  'publisher', 'pubdate', 'extension', 'physical_path']
+        for field in fields:
+            val = safe_str(book.get(field, '')).lower()
+            if filter_text in val:
+                return True
+        return False
+
     def switch_view(self, view_type):
         self.current_view = view_type
         if view_type == "list":
@@ -340,6 +366,9 @@ class MainWindow(QMainWindow):
             self.view_stack.setCurrentWidget(self.tree_view)
 
     def on_bookshelf_book_clicked(self, book):
+        pass
+
+    def on_bookshelf_book_double_clicked(self, book):
         self.open_detail_window(book)
 
     def on_tree_book_clicked(self, book):
@@ -496,6 +525,14 @@ class MainWindow(QMainWindow):
 
     def on_search(self):
         self.current_search = self.search_input.text()
+        has_search = bool(self.current_search.strip())
+        self.filter_label.setVisible(has_search)
+        self.filter_input.setVisible(has_search)
+        if not has_search:
+            self.filter_input.clear()
+        self.refresh_books()
+
+    def on_filter(self):
         self.refresh_books()
 
     def on_cell_double_clicked(self, row, col):

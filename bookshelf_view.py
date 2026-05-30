@@ -2,18 +2,24 @@ import os
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, 
                              QGridLayout, QLabel, QFrame, QToolTip)
 from PyQt6.QtGui import QPixmap, QFont
-from PyQt6.QtCore import Qt, pyqtSignal, QEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QTimer
 
 from utils import safe_str
 
 
 class BookCard(QFrame):
     clicked = pyqtSignal(dict)
+    double_clicked = pyqtSignal(dict)
 
     def __init__(self, book, parent=None):
         super().__init__(parent)
         self.book = book
         self.is_selected = False
+        self._click_timer = QTimer()
+        self._click_timer.setSingleShot(True)
+        self._click_timer.setInterval(300)
+        self._click_timer.timeout.connect(self._emit_single_click)
+        self._pending_book = None
         self.init_ui()
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
@@ -112,10 +118,23 @@ class BookCard(QFrame):
         self.is_selected = selected
         self.update_style()
 
+    def _emit_single_click(self):
+        if self._pending_book is not None:
+            self.clicked.emit(self._pending_book)
+            self._pending_book = None
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.book)
+            self._pending_book = self.book
+            self._click_timer.start()
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._click_timer.stop()
+            self._pending_book = None
+            self.double_clicked.emit(self.book)
+        super().mouseDoubleClickEvent(event)
 
     def enterEvent(self, event):
         tooltip_text = self.format_tooltip()
@@ -177,6 +196,7 @@ class BookCard(QFrame):
 
 class BookshelfView(QWidget):
     book_clicked = pyqtSignal(dict)
+    book_double_clicked = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -222,6 +242,7 @@ class BookshelfView(QWidget):
             
             card = BookCard(book)
             card.clicked.connect(self.on_book_clicked)
+            card.double_clicked.connect(self.on_book_double_clicked)
             self.cards.append(card)
             self.grid_layout.addWidget(card, row, col)
 
@@ -235,7 +256,15 @@ class BookshelfView(QWidget):
                 break
         
         self.selected_book_id = book.get('id')
-        self.book_clicked.emit(book)
+
+    def on_book_double_clicked(self, book):
+        for card in self.cards:
+            if card.book.get('id') == book.get('id'):
+                card.set_selected(True)
+                break
+        
+        self.selected_book_id = book.get('id')
+        self.book_double_clicked.emit(book)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
