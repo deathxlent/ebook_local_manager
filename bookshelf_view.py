@@ -197,11 +197,12 @@ class BookCard(QFrame):
 class BookshelfView(QWidget):
     book_clicked = pyqtSignal(dict)
     book_double_clicked = pyqtSignal(dict)
+    selection_changed = pyqtSignal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.books_data = []
-        self.selected_book_id = None
+        self.selected_ids = set()
         self.cards = []
         self.init_ui()
 
@@ -224,8 +225,13 @@ class BookshelfView(QWidget):
 
     def set_books(self, books_data):
         self.books_data = books_data
-        self.selected_book_id = None
         self.update_view()
+
+    def set_selected_ids(self, selected_ids):
+        self.selected_ids = set(selected_ids) if selected_ids else set()
+        for card in self.cards:
+            book_id = card.book.get('id')
+            card.set_selected(book_id in self.selected_ids)
 
     def update_view(self):
         self.cards = []
@@ -243,27 +249,35 @@ class BookshelfView(QWidget):
             card = BookCard(book)
             card.clicked.connect(self.on_book_clicked)
             card.double_clicked.connect(self.on_book_double_clicked)
+            book_id = book.get('id')
+            card.set_selected(book_id in self.selected_ids)
             self.cards.append(card)
             self.grid_layout.addWidget(card, row, col)
 
     def on_book_clicked(self, book):
-        for card in self.cards:
-            card.set_selected(False)
+        book_id = book.get('id')
+        if book_id in self.selected_ids:
+            self.selected_ids.discard(book_id)
+        else:
+            self.selected_ids.add(book_id)
         
         for card in self.cards:
-            if card.book.get('id') == book.get('id'):
-                card.set_selected(True)
+            if card.book.get('id') == book_id:
+                card.set_selected(book_id in self.selected_ids)
                 break
         
-        self.selected_book_id = book.get('id')
+        self.book_clicked.emit(book)
+        self.selection_changed.emit(list(self.selected_ids))
 
     def on_book_double_clicked(self, book):
+        book_id = book.get('id')
+        self.selected_ids.add(book_id)
         for card in self.cards:
-            if card.book.get('id') == book.get('id'):
+            if card.book.get('id') == book_id:
                 card.set_selected(True)
                 break
         
-        self.selected_book_id = book.get('id')
+        self.selection_changed.emit(list(self.selected_ids))
         self.book_double_clicked.emit(book)
 
     def resizeEvent(self, event):

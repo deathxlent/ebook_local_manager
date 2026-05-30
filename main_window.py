@@ -31,6 +31,7 @@ class MainWindow(QMainWindow):
         self.current_search = ""
         self.books_data = []
         self.search_results = []
+        self.selected_book_ids = set()
         self.current_view = "list"
         self.init_ui()
         self.refresh_books()
@@ -258,11 +259,13 @@ class MainWindow(QMainWindow):
         self.bookshelf_view = BookshelfView()
         self.bookshelf_view.book_clicked.connect(self.on_bookshelf_book_clicked)
         self.bookshelf_view.book_double_clicked.connect(self.on_bookshelf_book_double_clicked)
+        self.bookshelf_view.selection_changed.connect(self.on_view_selection_changed)
         self.view_stack.addWidget(self.bookshelf_view)
 
         self.tree_view = TreeView()
         self.tree_view.book_clicked.connect(self.on_tree_book_clicked)
         self.tree_view.book_double_clicked.connect(self.on_tree_book_double_clicked)
+        self.tree_view.selection_changed.connect(self.on_view_selection_changed)
         self.view_stack.addWidget(self.tree_view)
 
         main_layout.addWidget(self.view_stack)
@@ -344,6 +347,7 @@ class MainWindow(QMainWindow):
         self.bookshelf_view.set_books(self.books_data)
         self.tree_view.set_books(self.books_data)
 
+        self.sync_selection_to_views()
         self.update_status()
         self.update_delete_button_state()
 
@@ -366,7 +370,14 @@ class MainWindow(QMainWindow):
             self.view_stack.setCurrentWidget(self.tree_view)
 
     def on_bookshelf_book_clicked(self, book):
-        pass
+        book_id = book.get('id')
+        if book_id:
+            if book_id in self.selected_book_ids:
+                self.selected_book_ids.discard(book_id)
+            else:
+                self.selected_book_ids.add(book_id)
+            self.sync_selection_to_views()
+            self.update_delete_button_state()
 
     def on_bookshelf_book_double_clicked(self, book):
         self.open_detail_window(book)
@@ -376,6 +387,11 @@ class MainWindow(QMainWindow):
 
     def on_tree_book_double_clicked(self, book):
         self.open_detail_window(book)
+
+    def on_view_selection_changed(self, selected_ids):
+        self.selected_book_ids = set(selected_ids)
+        self.sync_selection_to_views()
+        self.update_delete_button_state()
 
     def update_status(self):
         total = len(self.books_data)
@@ -394,8 +410,9 @@ class MainWindow(QMainWindow):
         checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         checkbox = QCheckBox()
-        checkbox.setChecked(False)
-        checkbox.stateChanged.connect(lambda state, r=row: self.on_checkbox_changed(r, state))
+        book_id = book.get('id')
+        checkbox.setChecked(book_id in self.selected_book_ids)
+        checkbox.stateChanged.connect(lambda state, b_id=book_id: self.on_checkbox_changed(b_id, state))
         checkbox_layout.addWidget(checkbox)
 
         self.table.setCellWidget(row, 0, checkbox_widget)
@@ -546,47 +563,67 @@ class MainWindow(QMainWindow):
         if book and book.get('id'):
             self.open_detail_window(book)
 
-    def on_checkbox_changed(self, row, state):
+    def on_checkbox_changed(self, book_id, state):
+        if state == Qt.CheckState.Checked.value:
+            self.selected_book_ids.add(book_id)
+        else:
+            self.selected_book_ids.discard(book_id)
+        self.sync_selection_to_views()
         self.update_delete_button_state()
 
     def get_checked_rows(self):
         checked_rows = []
-        for row in range(self.table.rowCount()):
+        for row, book in enumerate(self.books_data):
+            if book.get('id') in self.selected_book_ids:
+                checked_rows.append(row)
+        return checked_rows
+
+    def get_selected_books(self):
+        return [b for b in self.books_data if b.get('id') in self.selected_book_ids]
+
+    def sync_selection_to_views(self):
+        self.bookshelf_view.set_selected_ids(self.selected_book_ids)
+        self.tree_view.set_selected_ids(self.selected_book_ids)
+
+        for row, book in enumerate(self.books_data):
             widget = self.table.cellWidget(row, 0)
             if widget:
                 checkbox = widget.findChild(QCheckBox)
-                if checkbox and checkbox.isChecked():
-                    checked_rows.append(row)
-        return checked_rows
+                if checkbox:
+                    book_id = book.get('id')
+                    if checkbox.isChecked() != (book_id in self.selected_book_ids):
+                        checkbox.blockSignals(True)
+                        checkbox.setChecked(book_id in self.selected_book_ids)
+                        checkbox.blockSignals(False)
 
     def update_delete_button_state(self):
-        checked_count = len(self.get_checked_rows())
+        checked_count = len(self.selected_book_ids)
         self.batch_delete_btn.setEnabled(checked_count > 0)
         self.batch_rename_btn.setEnabled(checked_count > 0)
         self.export_covers_btn.setEnabled(checked_count > 0)
         self.update_status()
 
     def toggle_select_all(self):
-        checked_rows = self.get_checked_rows()
-        all_checked = len(checked_rows) == self.table.rowCount()
-
-        for row in range(self.table.rowCount()):
-            widget = self.table.cellWidget(row, 0)
-            if widget:
-                checkbox = widget.findChild(QCheckBox)
-                if checkbox:
-                    checkbox.setChecked(not all_checked)
-
+        all_checked = len(self.selected_book_ids) == len(self.books_data)
+        for book in self.books_data:
+            book_id = book.get('id')
+            if book_id:
+                if all_checked:
+                    self.selected_book_ids.discard(book_id)
+                else:
+                    self.selected_book_ids.add(book_id)
+        self.sync_selection_to_views()
         self.update_delete_button_state()
 
     def invert_selection(self):
-        for row in range(self.table.rowCount()):
-            widget = self.table.cellWidget(row, 0)
-            if widget:
-                checkbox = widget.findChild(QCheckBox)
-                if checkbox:
-                    checkbox.setChecked(not checkbox.isChecked())
-
+        for book in self.books_data:
+            book_id = book.get('id')
+            if book_id:
+                if book_id in self.selected_book_ids:
+                    self.selected_book_ids.discard(book_id)
+                else:
+                    self.selected_book_ids.add(book_id)
+        self.sync_selection_to_views()
         self.update_delete_button_state()
 
     def batch_parse_douban(self):

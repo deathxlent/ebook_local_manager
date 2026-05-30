@@ -88,10 +88,13 @@ class TreeBookItem(QTreeWidgetItem):
 class TreeView(QWidget):
     book_clicked = pyqtSignal(dict)
     book_double_clicked = pyqtSignal(dict)
+    selection_changed = pyqtSignal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.books_data = []
+        self.selected_ids = set()
+        self._updating_selection = False
         self.init_ui()
 
     def init_ui(self):
@@ -128,6 +131,7 @@ class TreeView(QWidget):
         self.tree.setMouseTracking(True)
         self.tree.itemClicked.connect(self.on_item_clicked)
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
+        self.tree.itemChanged.connect(self.on_item_changed)
         self.tree.itemEntered.connect(self.on_item_entered)
         self.tree.viewport().installEventFilter(self)
 
@@ -137,14 +141,35 @@ class TreeView(QWidget):
         self.books_data = books_data
         self.build_tree()
 
+    def set_selected_ids(self, selected_ids):
+        self.selected_ids = set(selected_ids) if selected_ids else set()
+        self._updating_selection = True
+        self.update_items_checkstate()
+        self._updating_selection = False
+
+    def update_items_checkstate(self):
+        def update_item(item):
+            if isinstance(item, TreeBookItem) and not item.is_folder and item.book:
+                book_id = item.book.get('id')
+                check_state = Qt.CheckState.Checked if book_id in self.selected_ids else Qt.CheckState.Unchecked
+                if item.checkState(0) != check_state:
+                    item.setCheckState(0, check_state)
+            for i in range(item.childCount()):
+                update_item(item.child(i))
+        
+        for i in range(self.tree.topLevelItemCount()):
+            update_item(self.tree.topLevelItem(i))
+
     def build_tree(self):
         self.tree.clear()
+        self._updating_selection = True
         
         folder_items = {}
         root_items = []
 
         for book in self.books_data:
             physical_path = book.get('physical_path', '')
+            book_id = book.get('id')
             if not physical_path:
                 item = TreeBookItem(book)
                 item.setText(0, safe_str(book.get('title')) or '未知标题')
@@ -152,6 +177,8 @@ class TreeView(QWidget):
                 if isinstance(authors, list):
                     authors = ', '.join(authors)
                 item.setText(1, authors)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(0, Qt.CheckState.Checked if book_id in self.selected_ids else Qt.CheckState.Unchecked)
                 root_items.append(item)
                 continue
 
@@ -172,6 +199,8 @@ class TreeView(QWidget):
             if isinstance(authors, list):
                 authors = ', '.join(authors)
             book_item.setText(1, authors)
+            book_item.setFlags(book_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            book_item.setCheckState(0, Qt.CheckState.Checked if book_id in self.selected_ids else Qt.CheckState.Unchecked)
             folder_item.addChild(book_item)
 
         self.tree.addTopLevelItems(root_items)
@@ -184,12 +213,49 @@ class TreeView(QWidget):
                 current_text = top_item.text(0)
                 top_item.setText(0, f"{current_text} ({child_count})")
 
+        self._updating_selection = False
+
+    def on_item_changed(self, item, column):
+        if self._updating_selection:
+            return
+        if column != 0:
+            return
+        if not isinstance(item, TreeBookItem) or item.is_folder or not item.book:
+            return
+        
+        book_id = item.book.get('id')
+        if item.checkState(0) == Qt.CheckState.Checked:
+            self.selected_ids.add(book_id)
+        else:
+            self.selected_ids.discard(book_id)
+        
+        self.selection_changed.emit(list(self.selected_ids))
+
     def on_item_clicked(self, item, column):
-        if not item.is_folder and item.book:
-            self.book_clicked.emit(item.book)
+        if not isinstance(item, TreeBookItem) or item.is_folder or not item.book:
+            return
+        
+        book_id = item.book.get('id')
+        self.tree.blockSignals(True)
+        if item.checkState(0) == Qt.CheckState.Checked:
+            item.setCheckState(0, Qt.CheckState.Unchecked)
+            self.selected_ids.discard(book_id)
+        else:
+            item.setCheckState(0, Qt.CheckState.Checked)
+            self.selected_ids.add(book_id)
+        self.tree.blockSignals(False)
+        
+        self.selection_changed.emit(list(self.selected_ids))
+        self.book_clicked.emit(item.book)
 
     def on_item_double_clicked(self, item, column):
         if not item.is_folder and item.book:
+            book_id = item.book.get('id')
+            self.selected_ids.add(book_id)
+            self._updating_selection = True
+            item.setCheckState(0, Qt.CheckState.Checked)
+            self._updating_selection = False
+            self.selection_changed.emit(list(self.selected_ids))
             self.book_double_clicked.emit(item.book)
 
     def on_item_entered(self, item, column):
