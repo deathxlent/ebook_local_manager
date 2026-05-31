@@ -61,7 +61,11 @@ class DoubanParser(QObject):
 
     def save_config(self, cookie: str):
         try:
-            config = {'douban_cookie': cookie}
+            config = {}
+            if os.path.exists(self.config_path):
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+            config['douban_cookie'] = cookie
             os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
