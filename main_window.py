@@ -326,10 +326,11 @@ class MainWindow(QMainWindow):
 
     def open_settings_window(self):
         current_cookie = self.douban_parser.cookie
-        dialog = SettingsWindow(self, current_cookie)
+        dialog = SettingsWindow(self, current_cookie, self.category_manager)
         if dialog.exec():
             new_cookie = dialog.get_cookie()
             self.douban_parser.save_config(new_cookie)
+            self.category_manager.load_categories()
             QMessageBox.information(self, "成功", "配置已保存！")
 
     def refresh_books(self):

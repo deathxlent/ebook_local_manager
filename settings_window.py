@@ -99,10 +99,10 @@ class CategoryManager:
 
 
 class SettingsWindow(QDialog):
-    def __init__(self, parent=None, current_cookie: str = ""):
+    def __init__(self, parent=None, current_cookie: str = "", category_manager=None):
         super().__init__(parent)
         self.cookie = current_cookie
-        self.category_manager = CategoryManager()
+        self.category_manager = category_manager or CategoryManager()
         self.init_ui()
 
     def init_ui(self):
@@ -284,6 +284,7 @@ class SettingsWindow(QDialog):
             "科幻/大刘\n"
             "科幻/斯卡尔奇"
         )
+        self.quick_edit.setPlainText(self.category_manager.export_text())
         self.quick_edit.setStyleSheet("""
             QTextEdit {
                 padding: 10px;
@@ -328,6 +329,7 @@ class SettingsWindow(QDialog):
         if ok and text.strip():
             self.category_manager.add_category(text.strip())
             self.refresh_category_tree()
+            self.quick_edit.setPlainText(self.category_manager.export_text())
 
     def add_sub_category(self):
         current_item = self.category_tree.currentItem()
@@ -345,6 +347,7 @@ class SettingsWindow(QDialog):
         if ok and text.strip():
             self.category_manager.add_category(root, text.strip())
             self.refresh_category_tree()
+            self.quick_edit.setPlainText(self.category_manager.export_text())
 
     def remove_selected_category(self):
         current_item = self.category_tree.currentItem()
@@ -366,6 +369,7 @@ class SettingsWindow(QDialog):
             if reply == QMessageBox.StandardButton.Yes:
                 self.category_manager.remove_category(root)
                 self.refresh_category_tree()
+                self.quick_edit.setPlainText(self.category_manager.export_text())
         elif data[0] == 'sub':
             root, sub = data[1], data[2]
             reply = QMessageBox.question(
@@ -376,6 +380,7 @@ class SettingsWindow(QDialog):
             if reply == QMessageBox.StandardButton.Yes:
                 self.category_manager.remove_category(root, sub)
                 self.refresh_category_tree()
+                self.quick_edit.setPlainText(self.category_manager.export_text())
 
     def export_categories(self):
         text = self.category_manager.export_text()
@@ -395,6 +400,7 @@ class SettingsWindow(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             if self.category_manager.parse_quick_config(text):
                 self.refresh_category_tree()
+                self.quick_edit.setPlainText(self.category_manager.export_text())
                 QMessageBox.information(self, "成功", "分类配置导入成功！")
             else:
                 QMessageBox.warning(self, "错误", "导入失败！")
