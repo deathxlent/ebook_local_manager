@@ -560,7 +560,7 @@ class DetailWindow(QDialog):
         if not self.douban_parser.has_cookie():
             QMessageBox.warning(self, "提示", "请先在设置中配置豆瓣 Cookie！")
             if self.parent():
-                self.parent().open_settings_window()
+                self.parent().open_douban_settings()
             return
 
         title = self.title_edit.text()

@@ -3,7 +3,7 @@ import sys
 import csv
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QTableWidget, QTableWidgetItem, QLineEdit, QLabel,
-                             QPushButton, QMenuBar, QMenu, QHeaderView, QMessageBox,
+                             QPushButton, QHeaderView, QMessageBox,
                              QAbstractItemView, QCheckBox, QFileDialog, QStackedWidget,
                              QButtonGroup)
 from PyQt6.QtGui import QPixmap, QDesktopServices
@@ -13,7 +13,7 @@ from database import Database
 from ebook_parser import EbookParser
 from import_window import ImportWindow
 from detail_window import DetailWindow
-from settings_window import SettingsWindow, CategoryManager
+from settings_window import CategoryManager, DoubanSettingsWindow, CategorySettingsWindow
 from douban_parser import DoubanParser
 from utils import safe_str, sanitize_filename
 from bookshelf_view import BookshelfView
@@ -297,41 +297,40 @@ class MainWindow(QMainWindow):
     def create_menu_bar(self):
         menubar = self.menuBar()
 
-        file_menu = menubar.addMenu("文件")
-
-        import_action = file_menu.addAction("导入电子书")
+        import_action = menubar.addAction("导入电子书")
         import_action.triggered.connect(self.open_import_window)
 
-        export_action = file_menu.addAction("导出CSV")
+        export_action = menubar.addAction("导出CSV")
         export_action.triggered.connect(self.export_csv)
 
-        file_menu.addSeparator()
-
-        cleanup_action = file_menu.addAction("一键清理")
+        cleanup_action = menubar.addAction("一键清理")
         cleanup_action.triggered.connect(self.cleanup_all)
 
-        file_menu.addSeparator()
+        douban_settings_action = menubar.addAction("豆瓣配置")
+        douban_settings_action.triggered.connect(self.open_douban_settings)
 
-        exit_action = file_menu.addAction("退出")
-        exit_action.triggered.connect(self.close)
+        category_settings_action = menubar.addAction("分类配置")
+        category_settings_action.triggered.connect(self.open_category_settings)
 
-        settings_menu = menubar.addMenu("设置")
-
-        douban_settings_action = settings_menu.addAction("豆瓣配置")
-        douban_settings_action.triggered.connect(self.open_settings_window)
-
-        help_menu = menubar.addMenu("帮助")
-        about_action = help_menu.addAction("关于")
+        about_action = menubar.addAction("关于")
         about_action.triggered.connect(self.show_about)
 
-    def open_settings_window(self):
+        exit_action = menubar.addAction("退出")
+        exit_action.triggered.connect(self.close)
+
+    def open_douban_settings(self):
         current_cookie = self.douban_parser.cookie
-        dialog = SettingsWindow(self, current_cookie, self.category_manager)
+        dialog = DoubanSettingsWindow(self, current_cookie)
         if dialog.exec():
             new_cookie = dialog.get_cookie()
             self.douban_parser.save_config(new_cookie)
+            QMessageBox.information(self, "成功", "豆瓣配置已保存！")
+
+    def open_category_settings(self):
+        dialog = CategorySettingsWindow(self, self.category_manager)
+        if dialog.exec():
             self.category_manager.load_categories()
-            QMessageBox.information(self, "成功", "配置已保存！")
+            QMessageBox.information(self, "成功", "分类配置已保存！")
 
     def refresh_books(self):
         self.search_results = self.db.get_all_books(
@@ -642,7 +641,7 @@ class MainWindow(QMainWindow):
     def batch_parse_douban(self):
         if not self.douban_parser.has_cookie():
             QMessageBox.warning(self, "提示", "请先在设置中配置豆瓣 Cookie！")
-            self.open_settings_window()
+            self.open_douban_settings()
             return
 
         checked_rows = self.get_checked_rows()
