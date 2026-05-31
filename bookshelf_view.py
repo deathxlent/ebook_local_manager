@@ -171,7 +171,14 @@ class BookCard(QFrame):
         
         category = safe_str(self.book.get('category'))
         if category:
-            lines.append(f"分类: {category}")
+            lines.append(f"豆瓣分类: {category}")
+        
+        dir_root = safe_str(self.book.get('dir_root')) or '-'
+        dir_sub = safe_str(self.book.get('dir_sub')) or '-'
+        if dir_root != '-':
+            lines.append(f"分类: {dir_root}")
+        if dir_sub != '-':
+            lines.append(f"子分类: {dir_sub}")
         
         tags = safe_str(self.book.get('tags'))
         if isinstance(tags, list):

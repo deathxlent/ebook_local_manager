@@ -13,7 +13,7 @@ from database import Database
 from ebook_parser import EbookParser
 from import_window import ImportWindow
 from detail_window import DetailWindow
-from settings_window import SettingsWindow
+from settings_window import SettingsWindow, CategoryManager
 from douban_parser import DoubanParser
 from utils import safe_str, sanitize_filename
 from bookshelf_view import BookshelfView
@@ -33,6 +33,7 @@ class MainWindow(QMainWindow):
         self.search_results = []
         self.selected_book_ids = set()
         self.current_view = "list"
+        self.category_manager = CategoryManager()
         self.init_ui()
         self.refresh_books()
         self.setup_douban_callbacks()
@@ -229,10 +230,11 @@ class MainWindow(QMainWindow):
         self.view_stack = QStackedWidget()
 
         self.table = QTableWidget()
-        self.table.setColumnCount(15)
+        self.table.setColumnCount(17)
         self.table.setHorizontalHeaderLabels([
             "", "封面", "标题", "副标题", "作者", "出版社", "出版日期",
-            "分类", "文件大小", "物理位置", "扩展名", "ISBN", "评分", "标签", "操作"
+            "豆瓣分类", "文件大小", "物理位置", "扩展名", "ISBN", "评分", "标签", 
+            "分类", "子分类", "操作"
         ])
 
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -247,7 +249,11 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(14, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(14, 150)
+        self.table.setColumnWidth(14, 100)
+        header.setSectionResizeMode(15, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(15, 100)
+        header.setSectionResizeMode(16, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(16, 150)
 
         self.table.verticalHeader().setDefaultSectionSize(100)
 
@@ -353,7 +359,8 @@ class MainWindow(QMainWindow):
 
     def _book_matches(self, book, filter_text):
         fields = ['title', 'subtitle', 'authors', 'category', 'isbn', 'tags',
-                  'publisher', 'pubdate', 'extension', 'physical_path']
+                  'publisher', 'pubdate', 'extension', 'physical_path',
+                  'dir_root', 'dir_sub']
         for field in fields:
             val = safe_str(book.get(field, '')).lower()
             if filter_text in val:
@@ -459,6 +466,11 @@ class MainWindow(QMainWindow):
 
         self.table.setItem(row, 13, QTableWidgetItem(safe_str(book.get('tags'))))
 
+        dir_root = safe_str(book.get('dir_root')) or '-'
+        dir_sub = safe_str(book.get('dir_sub')) or '-'
+        self.table.setItem(row, 14, QTableWidgetItem(dir_root))
+        self.table.setItem(row, 15, QTableWidgetItem(dir_sub))
+
         btn_widget = QWidget()
         btn_layout = QHBoxLayout(btn_widget)
         btn_layout.setContentsMargins(5, 0, 5, 0)
@@ -503,7 +515,7 @@ class MainWindow(QMainWindow):
         detail_btn.clicked.connect(lambda checked, b=book: self.open_detail_window(b))
         btn_layout.addWidget(detail_btn)
 
-        self.table.setCellWidget(row, 14, btn_widget)
+        self.table.setCellWidget(row, 16, btn_widget)
 
         if self.table.item(row, 8):
             self.table.item(row, 8).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -524,12 +536,14 @@ class MainWindow(QMainWindow):
             9: 'physical_path',
             10: 'extension',
             11: 'isbn',
-            12: 'rating'
+            12: 'rating',
+            14: 'dir_root',
+            15: 'dir_sub'
         }
         return column_map.get(col, 'title')
 
     def on_header_clicked(self, col):
-        if col in [0, 1, 14]:
+        if col in [0, 1, 16]:
             return
 
         if self.sort_column == col:
@@ -818,19 +832,15 @@ class MainWindow(QMainWindow):
                     file_name = os.path.basename(physical_path) if physical_path else ''
                     file_type = safe_str(book.get('extension'))
                     
-                    dir_root = ''
-                    dir_sub = ''
-                    full_dir = ''
-                    if physical_path:
-                        full_dir = os.path.dirname(physical_path)
-                        drive, path = os.path.splitdrive(full_dir)
-                        if drive:
-                            dir_root = drive
-                            dir_sub = path.lstrip(os.sep)
-                        elif full_dir:
-                            parts = full_dir.split(os.sep, 1)
-                            dir_root = parts[0]
-                            dir_sub = parts[1] if len(parts) > 1 else ''
+                    dir_root = safe_str(book.get('dir_root', ''))
+                    dir_sub = safe_str(book.get('dir_sub', ''))
+                    
+                    if dir_root and dir_sub:
+                        full_dir = f"{dir_root}/{dir_sub}"
+                    elif dir_root:
+                        full_dir = dir_root
+                    else:
+                        full_dir = ''
 
                     douban_rank = safe_str(book.get('rating'))
                     summary = safe_str(book.get('summary'))
@@ -877,7 +887,7 @@ class MainWindow(QMainWindow):
                 if b.get('id') == book.get('id'):
                     current_index = i
                     break
-        dialog = DetailWindow(self.db, book, self.douban_parser, self, self.books_data, current_index)
+        dialog = DetailWindow(self.db, book, self.douban_parser, self.category_manager, self, self.books_data, current_index)
         dialog.book_changed.connect(self.refresh_books)
         dialog.exec()
 

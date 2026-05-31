@@ -56,7 +56,14 @@ class TreeBookItem(QTreeWidgetItem):
         
         category = safe_str(book.get('category'))
         if category:
-            info_parts.append(f"分类: {category}")
+            info_parts.append(f"豆瓣分类: {category}")
+        
+        dir_root = safe_str(book.get('dir_root')) or '-'
+        dir_sub = safe_str(book.get('dir_sub')) or '-'
+        if dir_root != '-':
+            info_parts.append(f"分类: {dir_root}")
+        if dir_sub != '-':
+            info_parts.append(f"子分类: {dir_sub}")
         
         tags = safe_str(book.get('tags'))
         if isinstance(tags, list):

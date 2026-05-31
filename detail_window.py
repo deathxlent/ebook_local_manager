@@ -2,7 +2,7 @@ import os
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QTextEdit, QPushButton, QFormLayout, QMessageBox,
                              QDoubleSpinBox, QScrollArea, QWidget, QFrame, QApplication,
-                             QFileDialog)
+                             QFileDialog, QComboBox)
 from PyQt6.QtGui import QPixmap, QDesktopServices
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 
@@ -13,12 +13,13 @@ from ebook_parser import EbookParser
 class DetailWindow(QDialog):
     book_changed = pyqtSignal()
 
-    def __init__(self, db, book, douban_parser, parent=None, books_data=None, current_index=0):
+    def __init__(self, db, book, douban_parser, category_manager, parent=None, books_data=None, current_index=0):
         super().__init__(parent)
         self.db = db
         self.book_data = book.copy() if book else {}
         self.original_book = book.copy() if book else {}
         self.douban_parser = douban_parser
+        self.category_manager = category_manager
         self.books_data = books_data or []
         self.current_index = current_index
         self.is_edit_mode = False
@@ -118,7 +119,40 @@ class DetailWindow(QDialog):
 
         self.category_edit = QLineEdit()
         self.category_edit.setText(self.book_data.get('category', ''))
-        form_layout.addRow("分类:", self.category_edit)
+        form_layout.addRow("豆瓣分类:", self.category_edit)
+
+        category_layout = QHBoxLayout()
+        self.dir_root_combo = QComboBox()
+        self.dir_root_combo.setEditable(True)
+        self.dir_root_combo.addItem("")
+        for root in self.category_manager.get_root_categories():
+            self.dir_root_combo.addItem(root)
+        current_root = self.book_data.get('dir_root', '')
+        if current_root:
+            index = self.dir_root_combo.findText(current_root)
+            if index >= 0:
+                self.dir_root_combo.setCurrentIndex(index)
+            else:
+                self.dir_root_combo.setCurrentText(current_root)
+        self.dir_root_combo.currentTextChanged.connect(self.on_dir_root_changed)
+        category_layout.addWidget(self.dir_root_combo, 1)
+
+        self.dir_sub_combo = QComboBox()
+        self.dir_sub_combo.setEditable(True)
+        self.dir_sub_combo.addItem("")
+        current_sub = self.book_data.get('dir_sub', '')
+        if current_root:
+            for sub in self.category_manager.get_sub_categories(current_root):
+                self.dir_sub_combo.addItem(sub)
+        if current_sub:
+            index = self.dir_sub_combo.findText(current_sub)
+            if index >= 0:
+                self.dir_sub_combo.setCurrentIndex(index)
+            else:
+                self.dir_sub_combo.setCurrentText(current_sub)
+        category_layout.addWidget(self.dir_sub_combo, 1)
+
+        form_layout.addRow("分类:", category_layout)
 
         self.tags_edit = QLineEdit()
         self.tags_edit.setText(safe_str(self.book_data.get('tags', '')))
@@ -398,6 +432,12 @@ class DetailWindow(QDialog):
 
         self.set_edit_mode(False)
 
+    def on_dir_root_changed(self, text):
+        self.dir_sub_combo.clear()
+        self.dir_sub_combo.addItem("")
+        for sub in self.category_manager.get_sub_categories(text):
+            self.dir_sub_combo.addItem(sub)
+
     def set_edit_mode(self, edit_mode):
         self.is_edit_mode = edit_mode
 
@@ -413,6 +453,9 @@ class DetailWindow(QDialog):
             edit.setReadOnly(not edit_mode)
             if hasattr(edit, 'setButtonSymbols'):
                 continue
+
+        self.dir_root_combo.setEnabled(edit_mode)
+        self.dir_sub_combo.setEnabled(edit_mode)
 
         if edit_mode:
             self.edit_btn.setText("💾 保存")
@@ -454,6 +497,9 @@ class DetailWindow(QDialog):
             self.set_edit_mode(True)
 
     def save_changes(self):
+        dir_root = self.dir_root_combo.currentText().strip() or None
+        dir_sub = self.dir_sub_combo.currentText().strip() or None
+        
         update_data = {
             'title': self.title_edit.text(),
             'subtitle': self.subtitle_edit.text(),
@@ -468,7 +514,9 @@ class DetailWindow(QDialog):
             'douban_url': self.douban_edit.text(),
             'douban_id': self.douban_id_edit.text(),
             'summary': self.summary_edit.toPlainText(),
-            'notes': self.notes_edit.toPlainText()
+            'notes': self.notes_edit.toPlainText(),
+            'dir_root': dir_root,
+            'dir_sub': dir_sub
         }
 
         try:
@@ -561,16 +609,14 @@ class DetailWindow(QDialog):
                 'last_parsed_at': 'CURRENT_TIMESTAMP'
             })
 
-            reply = QMessageBox.question(
+            QMessageBox.information(
                 self, "解析完成",
-                "豆瓣信息解析完成！是否立即保存？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                "豆瓣信息解析完成！已自动进入编辑模式，请确认信息后点击保存。"
             )
-            if reply == QMessageBox.StandardButton.Yes:
-                self.save_changes()
+            self.set_edit_mode(True)
         else:
             error_msg = result.get('error', '解析失败，请检查网络或Cookie') if result else '解析失败'
-            QMessageBox.warning(self, "错误", f"解析失败: {error_msg}")
+            QMessageBox.warning(self, "提示", f"豆瓣抓取失败: {error_msg}")
 
         self.parse_btn.setEnabled(True)
         self.parse_btn.setText("🔍 从豆瓣解析")
@@ -676,6 +722,32 @@ class DetailWindow(QDialog):
         self.pubdate_edit.setText(self.book_data.get('pubdate', ''))
         self.isbn_edit.setText(self.book_data.get('isbn', ''))
         self.category_edit.setText(self.book_data.get('category', ''))
+        
+        self.dir_root_combo.clear()
+        self.dir_root_combo.addItem("")
+        for root in self.category_manager.get_root_categories():
+            self.dir_root_combo.addItem(root)
+        current_root = self.book_data.get('dir_root', '')
+        if current_root:
+            index = self.dir_root_combo.findText(current_root)
+            if index >= 0:
+                self.dir_root_combo.setCurrentIndex(index)
+            else:
+                self.dir_root_combo.setCurrentText(current_root)
+        
+        self.dir_sub_combo.clear()
+        self.dir_sub_combo.addItem("")
+        if current_root:
+            for sub in self.category_manager.get_sub_categories(current_root):
+                self.dir_sub_combo.addItem(sub)
+        current_sub = self.book_data.get('dir_sub', '')
+        if current_sub:
+            index = self.dir_sub_combo.findText(current_sub)
+            if index >= 0:
+                self.dir_sub_combo.setCurrentIndex(index)
+            else:
+                self.dir_sub_combo.setCurrentText(current_sub)
+        
         self.tags_edit.setText(safe_str(self.book_data.get('tags', '')))
         self.series_edit.setText(self.book_data.get('series', ''))
         self.rating_spin.setValue(float(self.book_data.get('rating', 0) or 0))

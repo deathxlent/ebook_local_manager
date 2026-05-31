@@ -44,6 +44,8 @@ class Database:
                 page_count INTEGER,
                 parse_status TEXT DEFAULT 'pending',
                 last_parsed_at TIMESTAMP,
+                dir_root TEXT,
+                dir_sub TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -75,7 +77,9 @@ class Database:
             'tags': 'TEXT',
             'page_count': 'INTEGER',
             'parse_status': "TEXT DEFAULT 'pending'",
-            'last_parsed_at': 'TIMESTAMP'
+            'last_parsed_at': 'TIMESTAMP',
+            'dir_root': 'TEXT',
+            'dir_sub': 'TEXT'
         }
 
         for col_name, col_def in new_columns.items():
@@ -198,11 +202,13 @@ class Database:
         if search:
             search_pattern = f'%{search}%'
             query += ''' WHERE title LIKE ? OR subtitle LIKE ? OR authors LIKE ? 
-                          OR category LIKE ? OR physical_path LIKE ? OR extension LIKE ? OR isbn LIKE ? OR tags LIKE ?'''
-            params = [search_pattern] * 8
+                          OR category LIKE ? OR physical_path LIKE ? OR extension LIKE ? OR isbn LIKE ? OR tags LIKE ?
+                          OR dir_root LIKE ? OR dir_sub LIKE ?'''
+            params = [search_pattern] * 10
 
         valid_columns = ["title", "subtitle", "authors", "category", "file_size", 
-                        "physical_path", "extension", "isbn", "rating", "pubdate", "publisher", "id"]
+                        "physical_path", "extension", "isbn", "rating", "pubdate", "publisher", "id",
+                        "dir_root", "dir_sub"]
         if sort_by in valid_columns:
             query += f' ORDER BY {sort_by} {order}'
 
