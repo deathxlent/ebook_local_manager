@@ -136,120 +136,159 @@ class Database:
             conn.close()
 
     def update_book(self, book_id: int, book_data: Dict[str, Any]) -> bool:
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
 
-        if 'authors' in book_data and isinstance(book_data['authors'], list):
-            book_data['authors'] = ', '.join(book_data['authors'])
-        if 'tags' in book_data and isinstance(book_data['tags'], list):
-            book_data['tags'] = ', '.join(book_data['tags'])
-        if 'languages' in book_data and isinstance(book_data['languages'], list):
-            book_data['languages'] = ', '.join(book_data['languages'])
+            if 'authors' in book_data and isinstance(book_data['authors'], list):
+                book_data['authors'] = ', '.join(book_data['authors'])
+            if 'tags' in book_data and isinstance(book_data['tags'], list):
+                book_data['tags'] = ', '.join(book_data['tags'])
+            if 'languages' in book_data and isinstance(book_data['languages'], list):
+                book_data['languages'] = ', '.join(book_data['languages'])
 
-        set_clause_parts = []
-        values = []
-        
-        for k, v in book_data.items():
-            set_clause_parts.append(f'{k} = ?')
-            values.append(v)
-        
-        set_clause_parts.append('updated_at = CURRENT_TIMESTAMP')
-        set_clause = ', '.join(set_clause_parts)
-        values.append(book_id)
+            set_clause_parts = []
+            values = []
+            
+            for k, v in book_data.items():
+                set_clause_parts.append(f'{k} = ?')
+                values.append(v)
+            
+            set_clause_parts.append('updated_at = CURRENT_TIMESTAMP')
+            set_clause = ', '.join(set_clause_parts)
+            values.append(book_id)
 
-        cursor.execute(
-            f'UPDATE books SET {set_clause} WHERE id = ?',
-            values
-        )
+            cursor.execute(
+                f'UPDATE books SET {set_clause} WHERE id = ?',
+                values
+            )
 
-        conn.commit()
-        affected = cursor.rowcount
-        conn.close()
-        return affected > 0
+            conn.commit()
+            affected = cursor.rowcount
+            return affected > 0
+        except Exception as e:
+            print(f"更新书籍失败: {e}")
+            if conn:
+                conn.rollback()
+            return False
+        finally:
+            if conn:
+                conn.close()
 
     def delete_book(self, book_id: int) -> bool:
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
 
-        cursor.execute('SELECT cover_path FROM books WHERE id = ?', (book_id,))
-        row = cursor.fetchone()
-        if row and row[0]:
-            cover_path = row[0]
-            try:
-                if os.path.exists(cover_path):
-                    os.remove(cover_path)
-                    print(f"已删除封面文件: {cover_path}")
-            except Exception as e:
-                print(f"删除封面文件失败: {e}")
+            cursor.execute('SELECT cover_path FROM books WHERE id = ?', (book_id,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                cover_path = row[0]
+                try:
+                    if os.path.exists(cover_path):
+                        os.remove(cover_path)
+                        print(f"已删除封面文件: {cover_path}")
+                except Exception as e:
+                    print(f"删除封面文件失败: {e}")
 
-        cursor.execute('DELETE FROM books WHERE id = ?', (book_id,))
+            cursor.execute('DELETE FROM books WHERE id = ?', (book_id,))
 
-        conn.commit()
-        affected = cursor.rowcount
-        conn.close()
-        return affected > 0
+            conn.commit()
+            affected = cursor.rowcount
+            return affected > 0
+        except Exception as e:
+            print(f"删除书籍失败: {e}")
+            if conn:
+                conn.rollback()
+            return False
+        finally:
+            if conn:
+                conn.close()
 
     def get_book(self, book_id: int) -> Optional[Dict[str, Any]]:
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
 
-        cursor.execute('SELECT * FROM books WHERE id = ?', (book_id,))
-        row = cursor.fetchone()
-        conn.close()
+            cursor.execute('SELECT * FROM books WHERE id = ?', (book_id,))
+            row = cursor.fetchone()
 
-        if row:
-            book = dict(row)
-            if book.get('authors'):
-                book['authors'] = [a.strip() for a in book['authors'].split(',')]
-            if book.get('tags'):
-                book['tags'] = [t.strip() for t in book['tags'].split(',')]
-            if book.get('languages'):
-                book['languages'] = [l.strip() for l in book['languages'].split(',')]
-            return book
-        return None
+            if row:
+                book = dict(row)
+                if book.get('authors'):
+                    book['authors'] = [a.strip() for a in book['authors'].split(',')]
+                if book.get('tags'):
+                    book['tags'] = [t.strip() for t in book['tags'].split(',')]
+                if book.get('languages'):
+                    book['languages'] = [l.strip() for l in book['languages'].split(',')]
+                return book
+            return None
+        except Exception as e:
+            print(f"获取书籍失败: {e}")
+            return None
+        finally:
+            if conn:
+                conn.close()
 
     def get_all_books(self, sort_by: str = "title", order: str = "ASC", search: str = "") -> List[Dict[str, Any]]:
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
 
-        query = 'SELECT * FROM books'
-        params = []
+            query = 'SELECT * FROM books'
+            params = []
 
-        if search:
-            search_pattern = f'%{search}%'
-            query += ''' WHERE title LIKE ? OR subtitle LIKE ? OR authors LIKE ? 
-                          OR physical_path LIKE ? OR extension LIKE ? OR isbn LIKE ? OR tags LIKE ?
-                          OR dir_root LIKE ? OR dir_sub LIKE ?'''
-            params = [search_pattern] * 9
+            if search:
+                search_pattern = f'%{search}%'
+                query += ''' WHERE title LIKE ? OR subtitle LIKE ? OR authors LIKE ? 
+                              OR physical_path LIKE ? OR extension LIKE ? OR isbn LIKE ? OR tags LIKE ?
+                              OR dir_root LIKE ? OR dir_sub LIKE ?'''
+                params = [search_pattern] * 9
 
-        valid_columns = ["title", "subtitle", "authors", "file_size", 
-                        "physical_path", "extension", "isbn", "rating", "pubdate", "publisher", "id",
-                        "dir_root", "dir_sub"]
-        if sort_by in valid_columns:
-            query += f' ORDER BY {sort_by} {order}'
+            valid_columns = ["title", "subtitle", "authors", "file_size", 
+                            "physical_path", "extension", "isbn", "rating", "pubdate", "publisher", "id",
+                            "dir_root", "dir_sub"]
+            if sort_by in valid_columns:
+                query += f' ORDER BY {sort_by} {order}'
 
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
 
-        books = []
-        for row in rows:
-            book = dict(row)
-            if book.get('authors'):
-                book['authors'] = [a.strip() for a in book['authors'].split(',')]
-            if book.get('tags'):
-                book['tags'] = [t.strip() for t in book['tags'].split(',')]
-            if book.get('languages'):
-                book['languages'] = [l.strip() for l in book['languages'].split(',')]
-            books.append(book)
-        return books
+            books = []
+            for row in rows:
+                book = dict(row)
+                if book.get('authors'):
+                    book['authors'] = [a.strip() for a in book['authors'].split(',')]
+                if book.get('tags'):
+                    book['tags'] = [t.strip() for t in book['tags'].split(',')]
+                if book.get('languages'):
+                    book['languages'] = [l.strip() for l in book['languages'].split(',')]
+                books.append(book)
+            return books
+        except Exception as e:
+            print(f"获取所有书籍失败: {e}")
+            return []
+        finally:
+            if conn:
+                conn.close()
 
     def book_exists(self, physical_path: str) -> bool:
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
 
-        cursor.execute('SELECT id FROM books WHERE physical_path = ?', (physical_path,))
-        exists = cursor.fetchone() is not None
-        conn.close()
+            cursor.execute('SELECT id FROM books WHERE physical_path = ?', (physical_path,))
+            exists = cursor.fetchone() is not None
 
-        return exists
+            return exists
+        except Exception as e:
+            print(f"检查书籍存在失败: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()

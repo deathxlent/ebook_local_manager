@@ -556,23 +556,33 @@ class DetailWindow(QDialog):
         if self.db.update_book(self.book_data['id'], update_data):
             self.book_data.update(update_data)
             
-            ebook_parser = EbookParser()
-            file_metadata = {
-                'title': update_data['title'],
-                'authors': update_data['authors'],
-                'publisher': update_data['publisher'],
-                'pubdate': update_data['pubdate'],
-                'isbn': update_data['isbn'],
-                'summary': update_data['summary'],
-                'tags': update_data['tags'],
-                'rating': update_data['rating'],
-                'page_count': update_data.get('page_count')
-            }
-            ebook_parser.update_metadata_to_file(self.book_data['physical_path'], file_metadata)
+            file_update_success = True
+            file_update_msg = ""
+            
+            physical_path = self.book_data.get('physical_path')
+            if physical_path and os.path.exists(physical_path):
+                ebook_parser = EbookParser()
+                file_metadata = {
+                    'title': update_data['title'],
+                    'authors': update_data['authors'],
+                    'publisher': update_data['publisher'],
+                    'pubdate': update_data['pubdate'],
+                    'isbn': update_data['isbn'],
+                    'summary': update_data['summary'],
+                    'tags': update_data['tags'],
+                    'rating': update_data['rating'],
+                    'page_count': update_data.get('page_count')
+                }
+                file_update_success = ebook_parser.update_metadata_to_file(physical_path, file_metadata)
+                if not file_update_success:
+                    file_update_msg = "\n\n⚠️ 提示：数据库已保存，但元数据写入文件失败（文件可能被占用或权限不足）"
+            else:
+                file_update_success = False
+                file_update_msg = "\n\n⚠️ 提示：数据库已保存，但源文件不存在，无法更新元数据到文件"
             
             self.set_edit_mode(False)
             self.book_changed.emit()
-            QMessageBox.information(self, "成功", "修改已保存！")
+            QMessageBox.information(self, "成功", f"修改已保存！{file_update_msg}")
         else:
             QMessageBox.warning(self, "错误", "保存失败！")
 
@@ -728,11 +738,27 @@ class DetailWindow(QDialog):
 
     def go_prev(self):
         if self.current_index > 0:
+            if self.is_edit_mode:
+                reply = QMessageBox.question(
+                    self, "未保存的修改",
+                    "当前处于编辑模式，可能有未保存的修改。\n\n确定要翻页吗？未保存的修改将会丢失。",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
             self.current_index -= 1
             self.load_book(self.books_data[self.current_index])
 
     def go_next(self):
         if self.current_index < len(self.books_data) - 1:
+            if self.is_edit_mode:
+                reply = QMessageBox.question(
+                    self, "未保存的修改",
+                    "当前处于编辑模式，可能有未保存的修改。\n\n确定要翻页吗？未保存的修改将会丢失。",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
             self.current_index += 1
             self.load_book(self.books_data[self.current_index])
 
@@ -822,6 +848,12 @@ class DetailWindow(QDialog):
             if new_cover_path and os.path.exists(new_cover_path):
                 self.book_data['cover_path'] = new_cover_path
                 self.db.update_book(self.book_data['id'], {'cover_path': new_cover_path})
+                
+                if old_cover_path and old_cover_path != new_cover_path and os.path.exists(old_cover_path):
+                    try:
+                        os.remove(old_cover_path)
+                    except:
+                        pass
                 
                 pixmap = QPixmap(new_cover_path)
                 self.cover_label.setPixmap(pixmap.scaled(

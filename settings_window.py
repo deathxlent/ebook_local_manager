@@ -346,7 +346,7 @@ class CategorySettingsWindow(QDialog):
                 background-color: #45a049;
             }
         """)
-        save_btn.clicked.connect(self.accept)
+        save_btn.clicked.connect(self.save_and_close)
         btn_layout.addWidget(save_btn)
 
         cancel_btn = QPushButton("取消")
@@ -463,3 +463,26 @@ class CategorySettingsWindow(QDialog):
                 QMessageBox.information(self, "成功", "分类配置导入成功！")
             else:
                 QMessageBox.warning(self, "错误", "导入失败！")
+
+    def save_and_close(self):
+        quick_edit_text = self.quick_edit.toPlainText().strip()
+        current_text = self.category_manager.export_text().strip()
+        
+        if quick_edit_text != current_text:
+            reply = QMessageBox.question(
+                self, "检测到未导入的修改",
+                "快速配置区的内容已被修改但未导入。\n\n是否在保存前先导入快速配置？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                if self.category_manager.parse_quick_config(quick_edit_text):
+                    self.refresh_category_tree()
+                    self.quick_edit.setPlainText(self.category_manager.export_text())
+                    QMessageBox.information(self, "成功", "分类配置导入成功！")
+                else:
+                    QMessageBox.warning(self, "错误", "导入失败，请检查配置格式！")
+                    return
+            elif reply == QMessageBox.StandardButton.Cancel:
+                return
+        
+        self.accept()

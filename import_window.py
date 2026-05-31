@@ -325,6 +325,7 @@ class ImportWindow(QDialog):
         self.import_btn.setEnabled(False)
         self.select_files_btn.setEnabled(False)
         self.select_folder_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(False)
 
         self.import_thread = ImportThread(self.db, self.parser, self.files_to_import)
         self.import_thread.progress_signal.connect(self.update_progress)
@@ -340,6 +341,7 @@ class ImportWindow(QDialog):
         self.import_btn.setEnabled(True)
         self.select_files_btn.setEnabled(True)
         self.select_folder_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(True)
 
         message_parts = [f"成功导入 {imported_count} 本书"]
         if skipped_duplicate > 0:
@@ -351,3 +353,17 @@ class ImportWindow(QDialog):
         self.files_to_import = []
         self.file_list_label.setText("尚未选择文件")
         self.accept()
+
+    def closeEvent(self, event):
+        if self.import_thread and self.import_thread.isRunning():
+            reply = QMessageBox.question(
+                self, "确认关闭",
+                "导入正在进行中，关闭窗口会在后台继续导入。\n\n确定要关闭窗口吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()

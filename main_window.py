@@ -727,11 +727,16 @@ class MainWindow(QMainWindow):
 
         if reply == QMessageBox.StandardButton.Yes:
             deleted_count = 0
+            deleted_ids = set()
             for row in sorted(checked_rows, reverse=True):
                 if 0 <= row < len(self.books_data):
                     book = self.books_data[row]
                     if book and book.get('id') and self.db.delete_book(book['id']):
                         deleted_count += 1
+                        deleted_ids.add(book['id'])
+
+            for book_id in deleted_ids:
+                self.selected_book_ids.discard(book_id)
 
             QMessageBox.information(self, "成功", f"已成功删除 {deleted_count} 本书！")
             self.refresh_books()
