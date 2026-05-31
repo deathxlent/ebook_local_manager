@@ -231,14 +231,17 @@ class DoubanParser(QObject):
                             data['pubdate'] = f"{date_match.group(1)}-{date_match.group(2)}-1"
                         else:
                             data['pubdate'] = pubdate
-                elif text.startswith("丛书"):
-                    next_element = element.getnext()
-                    if next_element is not None and next_element.text:
-                        data['series'] = next_element.text.strip()
                 elif text.startswith("ISBN"):
                     isbn = element.tail.strip() if element.tail else ''
                     if isbn:
                         data['isbn'] = isbn
+                elif text.startswith("页数"):
+                    page_count = element.tail.strip() if element.tail else ''
+                    if page_count:
+                        try:
+                            data['page_count'] = int(page_count)
+                        except ValueError:
+                            pass
 
             summary_element = html.xpath("//div[@id='link-report']//div[@class='intro']")
             if summary_element:

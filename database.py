@@ -166,6 +166,17 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
 
+        cursor.execute('SELECT cover_path FROM books WHERE id = ?', (book_id,))
+        row = cursor.fetchone()
+        if row and row[0]:
+            cover_path = row[0]
+            try:
+                if os.path.exists(cover_path):
+                    os.remove(cover_path)
+                    print(f"已删除封面文件: {cover_path}")
+            except Exception as e:
+                print(f"删除封面文件失败: {e}")
+
         cursor.execute('DELETE FROM books WHERE id = ?', (book_id,))
 
         conn.commit()
@@ -202,11 +213,11 @@ class Database:
         if search:
             search_pattern = f'%{search}%'
             query += ''' WHERE title LIKE ? OR subtitle LIKE ? OR authors LIKE ? 
-                          OR category LIKE ? OR physical_path LIKE ? OR extension LIKE ? OR isbn LIKE ? OR tags LIKE ?
+                          OR physical_path LIKE ? OR extension LIKE ? OR isbn LIKE ? OR tags LIKE ?
                           OR dir_root LIKE ? OR dir_sub LIKE ?'''
-            params = [search_pattern] * 10
+            params = [search_pattern] * 9
 
-        valid_columns = ["title", "subtitle", "authors", "category", "file_size", 
+        valid_columns = ["title", "subtitle", "authors", "file_size", 
                         "physical_path", "extension", "isbn", "rating", "pubdate", "publisher", "id",
                         "dir_root", "dir_sub"]
         if sort_by in valid_columns:

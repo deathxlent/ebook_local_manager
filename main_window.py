@@ -230,10 +230,10 @@ class MainWindow(QMainWindow):
         self.view_stack = QStackedWidget()
 
         self.table = QTableWidget()
-        self.table.setColumnCount(17)
+        self.table.setColumnCount(16)
         self.table.setHorizontalHeaderLabels([
             "", "封面", "标题", "副标题", "作者", "出版社", "出版日期",
-            "豆瓣分类", "文件大小", "物理位置", "扩展名", "ISBN", "评分", "标签", 
+            "文件大小", "物理位置", "扩展名", "ISBN", "评分", "标签", 
             "分类", "子分类", "操作"
         ])
 
@@ -248,12 +248,12 @@ class MainWindow(QMainWindow):
         self.table.setColumnWidth(1, 80)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(13, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(13, 100)
         header.setSectionResizeMode(14, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(14, 100)
         header.setSectionResizeMode(15, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(15, 100)
-        header.setSectionResizeMode(16, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(16, 150)
+        self.table.setColumnWidth(15, 150)
 
         self.table.verticalHeader().setDefaultSectionSize(100)
 
@@ -451,25 +451,24 @@ class MainWindow(QMainWindow):
         self.table.setItem(row, 4, QTableWidgetItem(safe_str(book.get('authors'))))
         self.table.setItem(row, 5, QTableWidgetItem(safe_str(book.get('publisher'))))
         self.table.setItem(row, 6, QTableWidgetItem(safe_str(book.get('pubdate'))))
-        self.table.setItem(row, 7, QTableWidgetItem(safe_str(book.get('category'))))
 
         file_size = book.get('file_size', 0)
         size_str = self.parser.format_file_size(file_size) if file_size else ''
-        self.table.setItem(row, 8, QTableWidgetItem(size_str))
+        self.table.setItem(row, 7, QTableWidgetItem(size_str))
 
-        self.table.setItem(row, 9, QTableWidgetItem(safe_str(book.get('physical_path'))))
-        self.table.setItem(row, 10, QTableWidgetItem(safe_str(book.get('extension'))))
-        self.table.setItem(row, 11, QTableWidgetItem(safe_str(book.get('isbn'))))
+        self.table.setItem(row, 8, QTableWidgetItem(safe_str(book.get('physical_path'))))
+        self.table.setItem(row, 9, QTableWidgetItem(safe_str(book.get('extension'))))
+        self.table.setItem(row, 10, QTableWidgetItem(safe_str(book.get('isbn'))))
 
         rating = book.get('rating', 0) or 0
-        self.table.setItem(row, 12, QTableWidgetItem(f"{rating:.1f}" if rating > 0 else ''))
+        self.table.setItem(row, 11, QTableWidgetItem(f"{rating:.1f}" if rating > 0 else ''))
 
-        self.table.setItem(row, 13, QTableWidgetItem(safe_str(book.get('tags'))))
+        self.table.setItem(row, 12, QTableWidgetItem(safe_str(book.get('tags'))))
 
         dir_root = safe_str(book.get('dir_root')) or '-'
         dir_sub = safe_str(book.get('dir_sub')) or '-'
-        self.table.setItem(row, 14, QTableWidgetItem(dir_root))
-        self.table.setItem(row, 15, QTableWidgetItem(dir_sub))
+        self.table.setItem(row, 13, QTableWidgetItem(dir_root))
+        self.table.setItem(row, 14, QTableWidgetItem(dir_sub))
 
         btn_widget = QWidget()
         btn_layout = QHBoxLayout(btn_widget)
@@ -515,12 +514,12 @@ class MainWindow(QMainWindow):
         detail_btn.clicked.connect(lambda checked, b=book: self.open_detail_window(b))
         btn_layout.addWidget(detail_btn)
 
-        self.table.setCellWidget(row, 16, btn_widget)
+        self.table.setCellWidget(row, 15, btn_widget)
 
-        if self.table.item(row, 8):
-            self.table.item(row, 8).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        if self.table.item(row, 12):
-            self.table.item(row, 12).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        if self.table.item(row, 7):
+            self.table.item(row, 7).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if self.table.item(row, 11):
+            self.table.item(row, 11).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.table.item(row, 2).setData(Qt.ItemDataRole.UserRole, book)
 
@@ -531,19 +530,18 @@ class MainWindow(QMainWindow):
             4: 'authors',
             5: 'publisher',
             6: 'pubdate',
-            7: 'category',
-            8: 'file_size',
-            9: 'physical_path',
-            10: 'extension',
-            11: 'isbn',
-            12: 'rating',
-            14: 'dir_root',
-            15: 'dir_sub'
+            7: 'file_size',
+            8: 'physical_path',
+            9: 'extension',
+            10: 'isbn',
+            11: 'rating',
+            13: 'dir_root',
+            14: 'dir_sub'
         }
         return column_map.get(col, 'title')
 
     def on_header_clicked(self, col):
-        if col in [0, 1, 16]:
+        if col in [0, 1, 15]:
             return
 
         if self.sort_column == col:

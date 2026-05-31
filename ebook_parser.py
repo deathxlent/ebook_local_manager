@@ -82,6 +82,13 @@ class EbookParser:
             if date:
                 data['pubdate'] = date
 
+            try:
+                page_count = len(book.spine)
+                if page_count > 0:
+                    data['page_count'] = page_count
+            except:
+                pass
+
             cover_path = self._extract_epub_cover(filepath, book)
             if cover_path:
                 data['cover_path'] = cover_path
@@ -678,6 +685,14 @@ class EbookParser:
                 clear_field('rating')
                 book.add_metadata('DC', 'rating', str(rating))
 
+            page_count = metadata.get('page_count')
+            if page_count:
+                try:
+                    book.spine.insert(0, None)
+                    book.spine.pop(0)
+                except:
+                    pass
+
             return self._write_epub_safe(epub_path, book)
         except Exception as e:
             print(f"更新 EPUB 元数据失败: {e}")
@@ -732,6 +747,10 @@ class EbookParser:
             rating = metadata.get('rating')
             if rating:
                 new_metadata['/Rating'] = str(rating)
+
+            page_count = metadata.get('page_count')
+            if page_count:
+                new_metadata['/PageCount'] = str(page_count)
 
             writer.add_metadata(new_metadata)
 

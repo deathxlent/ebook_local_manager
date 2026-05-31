@@ -79,6 +79,25 @@ class DetailWindow(QDialog):
         self.change_cover_btn.clicked.connect(self.change_cover)
         cover_layout.addWidget(self.change_cover_btn)
 
+        self.restore_cover_btn = QPushButton("还原封面")
+        self.restore_cover_btn.setMaximumWidth(250)
+        self.restore_cover_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+        """)
+        self.restore_cover_btn.clicked.connect(self.restore_cover)
+        cover_layout.addWidget(self.restore_cover_btn)
+
         cover_layout.addStretch()
         content_layout.addLayout(cover_layout)
 
@@ -117,10 +136,6 @@ class DetailWindow(QDialog):
         self.isbn_edit.setText(self.book_data.get('isbn', ''))
         form_layout.addRow("ISBN:", self.isbn_edit)
 
-        self.category_edit = QLineEdit()
-        self.category_edit.setText(self.book_data.get('category', ''))
-        form_layout.addRow("豆瓣分类:", self.category_edit)
-
         category_layout = QHBoxLayout()
         self.dir_root_combo = QComboBox()
         self.dir_root_combo.setEditable(True)
@@ -158,10 +173,6 @@ class DetailWindow(QDialog):
         self.tags_edit.setText(safe_str(self.book_data.get('tags', '')))
         self.tags_edit.setPlaceholderText("多个标签用逗号分隔")
         form_layout.addRow("标签:", self.tags_edit)
-
-        self.series_edit = QLineEdit()
-        self.series_edit.setText(self.book_data.get('series', ''))
-        form_layout.addRow("丛书:", self.series_edit)
 
         rating_layout = QHBoxLayout()
         self.rating_spin = QDoubleSpinBox()
@@ -444,9 +455,8 @@ class DetailWindow(QDialog):
         edits = [
             self.title_edit, self.subtitle_edit, self.author_edit,
             self.publisher_edit, self.pubdate_edit, self.isbn_edit,
-            self.category_edit, self.tags_edit, self.series_edit,
-            self.rating_spin, self.douban_edit, self.page_count_edit,
-            self.summary_edit, self.notes_edit
+            self.tags_edit, self.rating_spin, self.douban_edit, 
+            self.page_count_edit, self.summary_edit, self.notes_edit
         ]
 
         for edit in edits:
@@ -507,9 +517,7 @@ class DetailWindow(QDialog):
             'publisher': self.publisher_edit.text(),
             'pubdate': self.pubdate_edit.text(),
             'isbn': self.isbn_edit.text(),
-            'category': self.category_edit.text(),
             'tags': self.tags_edit.text(),
-            'series': self.series_edit.text(),
             'rating': self.rating_spin.value(),
             'douban_url': self.douban_edit.text(),
             'douban_id': self.douban_id_edit.text(),
@@ -525,13 +533,23 @@ class DetailWindow(QDialog):
         except:
             pass
 
-        if self.book_data.get('cover_path'):
-            update_data['cover_path'] = self.book_data['cover_path']
-        if self.book_data.get('cover_url'):
-            update_data['cover_url'] = self.book_data['cover_url']
-
         if self.db.update_book(self.book_data['id'], update_data):
             self.book_data.update(update_data)
+            
+            ebook_parser = EbookParser()
+            file_metadata = {
+                'title': update_data['title'],
+                'authors': update_data['authors'],
+                'publisher': update_data['publisher'],
+                'pubdate': update_data['pubdate'],
+                'isbn': update_data['isbn'],
+                'summary': update_data['summary'],
+                'tags': update_data['tags'],
+                'rating': update_data['rating'],
+                'page_count': update_data.get('page_count')
+            }
+            ebook_parser.update_metadata_to_file(self.book_data['physical_path'], file_metadata)
+            
             self.set_edit_mode(False)
             self.book_changed.emit()
             QMessageBox.information(self, "成功", "修改已保存！")
@@ -584,8 +602,8 @@ class DetailWindow(QDialog):
             if result.get('tags'):
                 tags_str = ', '.join(result['tags']) if isinstance(result['tags'], list) else str(result['tags'])
                 self.tags_edit.setText(tags_str)
-            if result.get('series'):
-                self.series_edit.setText(result['series'])
+            if result.get('page_count'):
+                self.page_count_edit.setText(str(result['page_count']))
 
             if result.get('cover_url'):
                 self.book_data['cover_url'] = result['cover_url']
@@ -721,7 +739,6 @@ class DetailWindow(QDialog):
         self.publisher_edit.setText(self.book_data.get('publisher', ''))
         self.pubdate_edit.setText(self.book_data.get('pubdate', ''))
         self.isbn_edit.setText(self.book_data.get('isbn', ''))
-        self.category_edit.setText(self.book_data.get('category', ''))
         
         self.dir_root_combo.clear()
         self.dir_root_combo.addItem("")
@@ -749,7 +766,6 @@ class DetailWindow(QDialog):
                 self.dir_sub_combo.setCurrentText(current_sub)
         
         self.tags_edit.setText(safe_str(self.book_data.get('tags', '')))
-        self.series_edit.setText(self.book_data.get('series', ''))
         self.rating_spin.setValue(float(self.book_data.get('rating', 0) or 0))
         self.douban_edit.setText(self.book_data.get('douban_url', ''))
         self.douban_id_edit.setText(self.book_data.get('douban_id', ''))
@@ -762,6 +778,41 @@ class DetailWindow(QDialog):
         self.next_btn.setEnabled(self.current_index < len(self.books_data) - 1)
 
         self.book_changed.emit()
+
+    def restore_cover(self):
+        filepath = self.book_data.get('physical_path')
+        if not filepath or not os.path.exists(filepath):
+            QMessageBox.warning(self, "提示", "书籍文件不存在！")
+            return
+
+        reply = QMessageBox.question(
+            self, "确认还原", 
+            "确定要从源文件重新解析封面吗？\n\n这将删除当前封面并从电子书文件中重新提取。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            old_cover_path = self.book_data.get('cover_path')
+            
+            ebook_parser = EbookParser()
+            parsed_data = ebook_parser.parse_book(filepath)
+            new_cover_path = parsed_data.get('cover_path')
+            
+            if new_cover_path and os.path.exists(new_cover_path):
+                self.book_data['cover_path'] = new_cover_path
+                self.db.update_book(self.book_data['id'], {'cover_path': new_cover_path})
+                
+                pixmap = QPixmap(new_cover_path)
+                self.cover_label.setPixmap(pixmap.scaled(
+                    230, 330,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                ))
+                
+                QMessageBox.information(self, "成功", "封面已从源文件重新解析！")
+            else:
+                self.cover_label.setText("无封面")
+                QMessageBox.information(self, "提示", "源文件中未找到封面图片。")
 
     def update_cover_to_file(self):
         cover_path = self.book_data.get('cover_path')
