@@ -139,8 +139,6 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        book_data['updated_at'] = 'CURRENT_TIMESTAMP'
-
         if 'authors' in book_data and isinstance(book_data['authors'], list):
             book_data['authors'] = ', '.join(book_data['authors'])
         if 'tags' in book_data and isinstance(book_data['tags'], list):
@@ -148,8 +146,15 @@ class Database:
         if 'languages' in book_data and isinstance(book_data['languages'], list):
             book_data['languages'] = ', '.join(book_data['languages'])
 
-        set_clause = ', '.join([f'{k} = ?' for k in book_data.keys()])
-        values = list(book_data.values())
+        set_clause_parts = []
+        values = []
+        
+        for k, v in book_data.items():
+            set_clause_parts.append(f'{k} = ?')
+            values.append(v)
+        
+        set_clause_parts.append('updated_at = CURRENT_TIMESTAMP')
+        set_clause = ', '.join(set_clause_parts)
         values.append(book_id)
 
         cursor.execute(

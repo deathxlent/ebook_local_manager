@@ -358,7 +358,7 @@ class MainWindow(QMainWindow):
         self.update_delete_button_state()
 
     def _book_matches(self, book, filter_text):
-        fields = ['title', 'subtitle', 'authors', 'category', 'isbn', 'tags',
+        fields = ['title', 'subtitle', 'authors', 'isbn', 'tags',
                   'publisher', 'pubdate', 'extension', 'physical_path',
                   'dir_root', 'dir_sub']
         for field in fields:
