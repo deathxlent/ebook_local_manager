@@ -169,6 +169,8 @@ class DetailWindow(QDialog):
 
         form_layout.addRow("分类:", category_layout)
 
+        self.adjust_combo_sizes()
+
         self.tags_edit = QLineEdit()
         self.tags_edit.setText(safe_str(self.book_data.get('tags', '')))
         self.tags_edit.setPlaceholderText("多个标签用逗号分隔")
@@ -448,6 +450,24 @@ class DetailWindow(QDialog):
         self.dir_sub_combo.addItem("")
         for sub in self.category_manager.get_sub_categories(text):
             self.dir_sub_combo.addItem(sub)
+        self.adjust_combo_sizes()
+        if self.dir_sub_combo.count() > 1 and self.is_edit_mode:
+            self.dir_sub_combo.showPopup()
+
+    def adjust_combo_sizes(self):
+        max_visible_items = 15
+        
+        root_count = self.dir_root_combo.count()
+        if root_count <= max_visible_items:
+            self.dir_root_combo.setMaxVisibleItems(root_count)
+        else:
+            self.dir_root_combo.setMaxVisibleItems(max_visible_items)
+        
+        sub_count = self.dir_sub_combo.count()
+        if sub_count <= max_visible_items:
+            self.dir_sub_combo.setMaxVisibleItems(sub_count)
+        else:
+            self.dir_sub_combo.setMaxVisibleItems(max_visible_items)
 
     def set_edit_mode(self, edit_mode):
         self.is_edit_mode = edit_mode
@@ -627,11 +647,10 @@ class DetailWindow(QDialog):
                 'last_parsed_at': 'CURRENT_TIMESTAMP'
             })
 
-            QMessageBox.information(
-                self, "解析完成",
-                "豆瓣信息解析完成！已自动进入编辑模式，请确认信息后点击保存。"
-            )
             self.set_edit_mode(True)
+            self.adjust_combo_sizes()
+            self.dir_root_combo.setFocus()
+            self.dir_root_combo.showPopup()
         else:
             error_msg = result.get('error', '解析失败，请检查网络或Cookie') if result else '解析失败'
             QMessageBox.warning(self, "提示", f"豆瓣抓取失败: {error_msg}")
@@ -764,6 +783,8 @@ class DetailWindow(QDialog):
                 self.dir_sub_combo.setCurrentIndex(index)
             else:
                 self.dir_sub_combo.setCurrentText(current_sub)
+        
+        self.adjust_combo_sizes()
         
         self.tags_edit.setText(safe_str(self.book_data.get('tags', '')))
         self.rating_spin.setValue(float(self.book_data.get('rating', 0) or 0))
